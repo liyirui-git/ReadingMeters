@@ -10,6 +10,8 @@
 #define WINDOW_CHANGABLESIZE 0
 #define CANNY_THRESHOLD_1 45
 #define CANNY_THRESHOLD_2 90
+#define CANNY_THRESHOLD_3 40
+#define CANNY_THRESHOLD_4 85
 #define MEDIAN_BLUR_SIZE 7 
 #define GREY_WHITE 255
 #define GREY_BLACK 0
@@ -28,7 +30,7 @@ Mat mergeCols(Mat A, Mat B);
 Mat transformProcess(Mat srcImage, Mat dstImage);
 vector<Point2f> getIntersections(vector<vector<float>> edgelines);
 vector<Point2f> getFourTops(vector<vector<float>> edgelines, Mat srcImage);
-vector<vector<float>> getEdgelines(vector<vector<float>> edgelines, vector<Vec2f> lines);
+vector<vector<float>> getEdgelines(vector<vector<float>> edgelines, vector<Vec2f> lines, Mat srcImage, boolean draw);
 
 int main() {
 	printf("\n\n<<<<<<<<<<<<  ReadingMeters v0.0.2  >>>>>>>>>>>>\n\n");
@@ -37,10 +39,12 @@ int main() {
 
 	char name[] = "0.jpg";
 	char dst[] = "result\\0_result.jpg";
+	char dst2[] = "result\\0_aftercut.jpg";
 	
 	for (int i = 0; i < IMAGE_NUM; i++) {
 		name[0] = 49 + i;
 		dst[7] = 49 + i;
+		dst2[7] = 49 + i;
 
 		Mat srcImage = imread(name, 1);
 		Mat dstImage;
@@ -64,8 +68,60 @@ int main() {
 		*/
 
 		dstImage = transformProcess(srcImage, dstImage);
+
 		imwrite(dst, dstImage);
 
+		dstImage = dstImage(Range(0, (7 * dstImage.rows) / 8), Range(dstImage.cols / 8, (7*dstImage.cols)/8));
+		Mat lineImage = dstImage;
+		//-------------------Greyed
+		cvtColor(dstImage, dstImage, CV_BGR2GRAY);
+		//-------------------Histogram-equalization
+		equalizeHist(dstImage, dstImage);
+		//-------------------Median Filter
+		medianBlur(dstImage, dstImage, MEDIAN_BLUR_SIZE+8);
+		//--------------------Edge Detection
+		Canny(dstImage, dstImage, CANNY_THRESHOLD_3, CANNY_THRESHOLD_4);
+
+		vector<Vec2f> lines;
+		HoughLines(dstImage, lines, 1, CV_PI / 180, HOUGH_THRESHOL, 0, 0);
+
+
+		//--------------------bubble select (in the order of "rho")
+		int bubble_flag = 1;
+		for (size_t i = 0; i < lines.size(); i++) {
+			if (bubble_flag == 1)
+				bubble_flag = 0;
+			else
+				break;
+			for (size_t j = 1; j < lines.size(); j++) {
+				if (lines[j - 1][0] > lines[j][0]) {
+					float swp1 = lines[j - 1][0], swp2 = lines[j - 1][1];
+					lines[j - 1][0] = lines[j][0]; lines[j - 1][1] = lines[j][1];
+					lines[j][0] = swp1; lines[j][1] = swp2;
+					bubble_flag = 1;
+				}
+			}
+		}
+
+		vector<vector<float>> edgelines;
+		edgelines = getEdgelines(edgelines, lines, lineImage, true);
+
+		float theta = 0;
+		for (size_t i = 0; i < edgelines.size(); i++) {
+			theta += edgelines[i][1];
+		}
+		theta = theta / edgelines.size();
+
+		float rate = ((2 * theta) / CV_PI) - 1;
+
+		printf("theta: %f\n\n", rate);
+		int range;
+		printf("Please input the range: \n");
+		scanf_s("%d", &range);
+
+		printf("result: %2f\n", range*rate);
+
+		imwrite(dst2, lineImage);
 	}
 
 	printf("--------END--------\n\n");
@@ -166,7 +222,7 @@ Mat transformProcess(Mat srcImage, Mat dstImage) {
 	}
 
 	vector<vector<float>> edgelines;
-	edgelines = getEdgelines(edgelines, lines);
+	edgelines = getEdgelines(edgelines, lines,srcImage, false);
 	
 	//imwrite("2_hough.jpg", srcImage);
 
@@ -190,10 +246,14 @@ Mat transformProcess(Mat srcImage, Mat dstImage) {
 		d = corners_new[3];
 	}
 
-	line(srcImage, a, b, Scalar(0, 0, 255),3); printf("a:(%f,%f)\n", a.x, a.y);
-	line(srcImage, b, c, Scalar(0, 0, 255),3); printf("b:(%f,%f)\n", b.x, b.y);
-	line(srcImage, c, d, Scalar(0, 0, 255),3); printf("c:(%f,%f)\n", c.x, c.y);
-	line(srcImage, d, a, Scalar(0, 0, 255),3); printf("d:(%f,%f)\n", d.x, d.y);
+	//line(srcImage, a, b, Scalar(0, 0, 255),3); 
+	printf("a:(%f,%f)\n", a.x, a.y);
+	//line(srcImage, b, c, Scalar(0, 0, 255),3); 
+	printf("b:(%f,%f)\n", b.x, b.y);
+	//line(srcImage, c, d, Scalar(0, 0, 255),3); 
+	printf("c:(%f,%f)\n", c.x, c.y);
+	//line(srcImage, d, a, Scalar(0, 0, 255),3); 
+	printf("d:(%f,%f)\n", d.x, d.y);
 	//line(srcImage, Point(0, 0), Point(srcImage.cols, srcImage.rows), Scalar(0, 255, 0));
 
 	//return srcImage;
@@ -303,43 +363,51 @@ vector<Point2f> getFourTops(vector<vector<float>> edgelines, Mat srcImage) {
 	return corners_new;
 }
 
-vector<vector<float>> getEdgelines(vector<vector<float>> edgelines, vector<Vec2f> lines) {
+vector<vector<float>> getEdgelines(vector<vector<float>> edgelines, vector<Vec2f> lines,Mat srcImage, boolean draw) {
 	float rho_f = 0.0, theta_f = 0.0;
 	for (size_t i = 0; i < lines.size(); i++) {
 		float rho = lines[i][0], theta = lines[i][1];
-		//get out of nearby lines
-		if (rho_f == 0.0 && theta_f == 0.0) {}
-		else if (((rho_f*(1 + ADJACENT_COEFFICIENT_R)) >= rho && (rho_f*(1 - ADJACENT_COEFFICIENT_R)) <= rho)
-			&& ((theta_f*(1 + ADJACENT_COEFFICIENT_T)) >= theta && (theta_f*(1 - ADJACENT_COEFFICIENT_T)) <= theta)) {
-			continue;
+		if (!draw) {
+			//get out of nearby lines
+			if (rho_f == 0.0 && theta_f == 0.0) {}
+			else if (((rho_f*(1 + ADJACENT_COEFFICIENT_R)) >= rho && (rho_f*(1 - ADJACENT_COEFFICIENT_R)) <= rho)
+				&& ((theta_f*(1 + ADJACENT_COEFFICIENT_T)) >= theta && (theta_f*(1 - ADJACENT_COEFFICIENT_T)) <= theta)) {
+				continue;
+			}
+			rho_f = rho; theta_f = theta;
+			//get out of lines which is not frame
+			if ((theta >(CV_PI / 24) && theta < ((11 * CV_PI) / 24)) ||
+				(theta >(13 * CV_PI / 24) && theta < ((23 * CV_PI) / 24)))
+				continue;
+			//printf("\trho:%f,\ttheta:%f\n", rho, theta);
 		}
-		rho_f = rho; theta_f = theta;
-		//get out of lines which is not frame
-		if ((theta >(CV_PI / 24) && theta < ((11 * CV_PI) / 24)) ||
-			(theta >(13 * CV_PI / 24) && theta < ((23 * CV_PI) / 24)))
-			continue;
-		//printf("\trho:%f,\ttheta:%f\n", rho, theta);
-
-		//----------------draw the line
-		/*Point pt1, pt2;
-		double a = cos(theta), b = sin(theta);
-		double x0 = a*rho, y0 = b*rho;
-		pt1.x = cvRound(x0 + HOUGH_LINE_LEN*(-b));
-		pt1.y = cvRound(y0 + HOUGH_LINE_LEN*(a));
-		pt2.x = cvRound(x0 - HOUGH_LINE_LEN*(-b));
-		pt2.y = cvRound(y0 - HOUGH_LINE_LEN*(a));
-		line(srcImage, pt1, pt2, Scalar(255, 255, 255), 1, 4);
-		*/
+		else {
+			Point pt1, pt2;
+			double a = cos(theta), b = sin(theta);
+			double x0 = a*rho, y0 = b*rho;
+			pt1.x = cvRound(x0 + HOUGH_LINE_LEN*(-b));
+			pt1.y = cvRound(y0 + HOUGH_LINE_LEN*(a));
+			pt2.x = cvRound(x0 - HOUGH_LINE_LEN*(-b));
+			pt2.y = cvRound(y0 - HOUGH_LINE_LEN*(a));
+			line(srcImage, pt1, pt2, Scalar(255, 255, 255), 1, 4);
+		}
 
 		//store the line which is qualified
-		float type;
-		if (theta <= (CV_PI / 24) || theta >= ((23 * CV_PI) / 24))
-			type = 1.0;
-		else
-			type = 0.0;
-		vector <float> linesinf;
-		linesinf.push_back(rho); linesinf.push_back(theta); linesinf.push_back(type);
-		edgelines.push_back(linesinf);
+		if (!draw) {
+			float type;
+			if (theta <= (CV_PI / 24) || theta >= ((23 * CV_PI) / 24))
+				type = 1.0;
+			else
+				type = 0.0;
+			vector <float> linesinf;
+			linesinf.push_back(rho); linesinf.push_back(theta); linesinf.push_back(type);
+			edgelines.push_back(linesinf);
+		}
+		else {
+			vector <float> linesinf;
+			linesinf.push_back(rho); linesinf.push_back(theta);
+			edgelines.push_back(linesinf);
+		}
 	}
 	return edgelines;
 }
