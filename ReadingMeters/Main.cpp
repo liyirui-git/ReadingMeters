@@ -26,6 +26,9 @@ using namespace std;
 Mat mergeRows(Mat A, Mat B);
 Mat mergeCols(Mat A, Mat B);
 Mat transformProcess(Mat srcImage, Mat dstImage);
+vector<Point2f> getIntersections(vector<vector<float>> edgelines);
+vector<Point2f> getFourTops(vector<vector<float>> edgelines, Mat srcImage);
+vector<vector<float>> getEdgelines(vector<vector<float>> edgelines, vector<Vec2f> lines);
 
 int main() {
 	printf("\n\n<<<<<<<<<<<<  ReadingMeters v0.0.2  >>>>>>>>>>>>\n\n");
@@ -143,7 +146,7 @@ Mat transformProcess(Mat srcImage, Mat dstImage) {
 	//--------------------Hough Transform
 	vector<Vec2f> lines;
 	HoughLines(dstImage, lines, 1, CV_PI / 180, HOUGH_THRESHOL, 0, 0);
-	float rho_f = 0.0, theta_f = 0.0;
+	
 
 	//--------------------bubble select (in the order of "rho")
 	int bubble_flag = 1;
@@ -162,23 +165,163 @@ Mat transformProcess(Mat srcImage, Mat dstImage) {
 		}
 	}
 
-	vector<vector<double>> edgelines;
+	vector<vector<float>> edgelines;
+	edgelines = getEdgelines(edgelines, lines);
+	
+	//imwrite("2_hough.jpg", srcImage);
+
+	vector<Point2f> corners_new = getFourTops(edgelines, srcImage);
+
+	Point2f a = corners_new[0];
+	Point2f b = corners_new[1];
+	Point2f c = corners_new[2];
+	Point2f d = corners_new[3];
+
+	//特殊情况特殊处理，只处理了一种情况，后面遇到再加
+	if (a.x == 0 && a.y == 0 && b.x == (float)srcImage.cols && b.y == 0) {
+		vector <float> linesinf;
+		linesinf.push_back(0); linesinf.push_back(CV_PI/2); linesinf.push_back(0.0);
+		edgelines.push_back(linesinf);
+
+		corners_new = getFourTops(edgelines, srcImage);
+		a = corners_new[0];
+		b = corners_new[1];
+		c = corners_new[2];
+		d = corners_new[3];
+	}
+
+	line(srcImage, a, b, Scalar(0, 0, 255),3); printf("a:(%f,%f)\n", a.x, a.y);
+	line(srcImage, b, c, Scalar(0, 0, 255),3); printf("b:(%f,%f)\n", b.x, b.y);
+	line(srcImage, c, d, Scalar(0, 0, 255),3); printf("c:(%f,%f)\n", c.x, c.y);
+	line(srcImage, d, a, Scalar(0, 0, 255),3); printf("d:(%f,%f)\n", d.x, d.y);
+	//line(srcImage, Point(0, 0), Point(srcImage.cols, srcImage.rows), Scalar(0, 255, 0));
+
+	//return srcImage;
+
+	float trans_len = ((b.x - a.x) > (c.x - d.x)) ? (b.x - a.x) : (c.x - d.x);
+	float trans_hei = ((d.y - a.y) > (c.y - b.y)) ? (d.y - a.y) : (c.y - b.y);
+	vector<Point2f> corners(4);
+	corners[0] = Point2f(0,0);
+	corners[1] = Point2f(trans_len,0);
+	corners[2] = Point2f(trans_len,trans_hei);
+	corners[3] = Point2f(0,trans_hei);
+
+	corners_new[0] = (Point2f)a; 
+	corners_new[1] = (Point2f)b; 
+	corners_new[2] = (Point2f)c; 
+	corners_new[3] = (Point2f)d;
+
+	//printf("old:(%d,%d),new:(%d,%d)\n", corners[3].x, corners[3].y, corners_new[3].x, corners_new[3].y);
+
+	Mat transform = getPerspectiveTransform(corners_new, corners);
+
+	vector<Point2f> points, points_trans;
+	for (int i = 0; i<srcImage.rows; i++) {
+		for (int j = 0; j<srcImage.cols; j++) {
+			points.push_back(Point2f(j, i));
+		}
+	}
+
+	//perspectiveTransform(points, points_trans, transform);
+
+	Mat transImage(trans_hei, trans_len, CV_32FC2);
+	warpPerspective(srcImage, transImage, transform, transImage.size());
+
+	return transImage;
+}
+
+vector<Point2f> getIntersections(vector<vector<float>> edgelines) {
+	vector<Point2f> intersections;
+	for (size_t i = 0; i < edgelines.size(); i++) {
+		for (size_t j = i + 1; j < edgelines.size(); j++) {
+			if (edgelines[i][2] != edgelines[j][2]) {
+				float r1 = edgelines[i][0], r2 = edgelines[j][0];
+				float theta1 = edgelines[i][1], theta2 = edgelines[j][1];
+				double a1 = cos(theta1), b1 = sin(theta1);
+				double a2 = cos(theta2), b2 = sin(theta2);
+				double x = (b1*r2 - b2*r1) / (a2*b1 - a1*b2);
+				double y = (a1*r2 - a2*r1) / (a1*b2 - a2*b1);
+				Point2f p = Point2f((float)x, (float)y);
+				intersections.push_back(p);
+				//printf("(%f,%f)\n", p.x, p.y);
+			}
+		}
+	}
+	return intersections;
+}
+
+vector<Point2f> getFourTops(vector<vector<float>> edgelines, Mat srcImage) {
+	//求出所有直线交点
+	vector<Point2f> intersections = getIntersections(edgelines);
+
+	Point2f a = Point2f(0, 0), b = Point2f(srcImage.cols, 0),
+		c = Point2f(srcImage.cols, srcImage.rows), d = Point2f(0, srcImage.rows);
+
+	int total = srcImage.rows + srcImage.cols;
+	float len_a = total, len_b = total, len_c = total, len_d = total;
+
+	for (int i = 0; i < intersections.size(); i++) {
+		Point2f p = intersections[i];
+		if (p.x <= (srcImage.cols / 2) && p.y <= (srcImage.rows / 2)) {
+			float len = sqrt(p.x*p.x + p.y*p.y);
+			if (len < len_a) {
+				len_a = len;
+				a = p;
+				//printf("<a>:(%f,%f),<p>:(%f,%f)\n",a.x,a.y,p.x,p.y);
+			}
+		}
+		else if (p.x >(srcImage.cols / 2) && p.y < (srcImage.rows / 2)) {
+			float len = sqrt((p.x - srcImage.cols)*(p.x - srcImage.cols) + p.y*p.y);
+			if (len < len_b) {
+				len_b = len;
+				b = p;
+			}
+		}
+		else if (p.x >= (srcImage.cols / 2) && p.y >= (srcImage.rows / 2)) {
+			float len = sqrt((p.x - srcImage.cols)*(p.x - srcImage.cols)
+				+ (p.y - srcImage.rows)*(p.y - srcImage.rows));
+			if (len < len_c) {
+				len_c = len;
+				c = p;
+			}
+		}
+		else if (p.x < (srcImage.cols / 2) && p.y >(srcImage.rows / 2)) {
+			float len = sqrt(p.x*p.x + (p.y - srcImage.rows)*(p.y - srcImage.rows));
+			if (len < len_d) {
+				len_d = len;
+				d = p;
+			}
+		}
+	}
+
+	vector<Point2f> corners_new(4);
+	corners_new[0] = (Point2f)a;
+	corners_new[1] = (Point2f)b;
+	corners_new[2] = (Point2f)c;
+	corners_new[3] = (Point2f)d;
+
+	return corners_new;
+}
+
+vector<vector<float>> getEdgelines(vector<vector<float>> edgelines, vector<Vec2f> lines) {
+	float rho_f = 0.0, theta_f = 0.0;
 	for (size_t i = 0; i < lines.size(); i++) {
 		float rho = lines[i][0], theta = lines[i][1];
 		//get out of nearby lines
-		if (rho_f == 0.0 && theta_f == 0.0) { }
-		else if (((rho_f*(1 + ADJACENT_COEFFICIENT_R)) >= rho && (rho_f*(1 - ADJACENT_COEFFICIENT_R)) <= rho) 
+		if (rho_f == 0.0 && theta_f == 0.0) {}
+		else if (((rho_f*(1 + ADJACENT_COEFFICIENT_R)) >= rho && (rho_f*(1 - ADJACENT_COEFFICIENT_R)) <= rho)
 			&& ((theta_f*(1 + ADJACENT_COEFFICIENT_T)) >= theta && (theta_f*(1 - ADJACENT_COEFFICIENT_T)) <= theta)) {
 			continue;
 		}
 		rho_f = rho; theta_f = theta;
 		//get out of lines which is not frame
-		if ((theta >(CV_PI / 24) && theta < (( 11* CV_PI) / 24)) || 
-			(theta >(13*CV_PI / 24) && theta < ((23 * CV_PI) / 24)))
+		if ((theta >(CV_PI / 24) && theta < ((11 * CV_PI) / 24)) ||
+			(theta >(13 * CV_PI / 24) && theta < ((23 * CV_PI) / 24)))
 			continue;
-		printf("\trho:%f,\ttheta:%f\n", rho, theta);
-		//draw the line
-		Point pt1, pt2;
+		//printf("\trho:%f,\ttheta:%f\n", rho, theta);
+
+		//----------------draw the line
+		/*Point pt1, pt2;
 		double a = cos(theta), b = sin(theta);
 		double x0 = a*rho, y0 = b*rho;
 		pt1.x = cvRound(x0 + HOUGH_LINE_LEN*(-b));
@@ -186,20 +329,17 @@ Mat transformProcess(Mat srcImage, Mat dstImage) {
 		pt2.x = cvRound(x0 - HOUGH_LINE_LEN*(-b));
 		pt2.y = cvRound(y0 - HOUGH_LINE_LEN*(a));
 		line(srcImage, pt1, pt2, Scalar(255, 255, 255), 1, 4);
+		*/
+
 		//store the line which is qualified
-		vector<double> linesinf;
-		linesinf.push_back(a); linesinf.push_back(b); linesinf.push_back(rho);
+		float type;
+		if (theta <= (CV_PI / 24) || theta >= ((23 * CV_PI) / 24))
+			type = 1.0;
+		else
+			type = 0.0;
+		vector <float> linesinf;
+		linesinf.push_back(rho); linesinf.push_back(theta); linesinf.push_back(type);
 		edgelines.push_back(linesinf);
 	}
-	//imwrite("2_hough.jpg", srcImage);
-
-	//求出所有直线交点
-	vector<Point> intersections;
-	for (size_t i = 0; i < edgelines.size(); i++) {
-		for (size_t j = i + 1; j < edgelines.size(); j++) {
-
-		}
-	}
-	
-	return srcImage;
+	return edgelines;
 }
