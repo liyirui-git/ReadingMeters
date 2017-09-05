@@ -11,7 +11,7 @@
 #define CANNY_THRESHOLD_1 45
 #define CANNY_THRESHOLD_2 90
 #define CANNY_THRESHOLD_3 40
-#define CANNY_THRESHOLD_4 85
+#define CANNY_THRESHOLD_4 75
 #define MEDIAN_BLUR_SIZE 7 
 #define GREY_WHITE 255
 #define GREY_BLACK 0
@@ -19,6 +19,7 @@
 #define LAP_FLITER_LEN 31  //laplacian requires no more zhan 31.
 #define HOUGH_LINE_LEN 5000
 #define HOUGH_THRESHOL 160
+#define HOUGH_THRESHOL_2 160
 #define ADJACENT_COEFFICIENT_R 0.30
 #define ADJACENT_COEFFICIENT_T 0.08
 
@@ -31,6 +32,7 @@ Mat transformProcess(Mat srcImage, Mat dstImage);
 vector<Point2f> getIntersections(vector<vector<float>> edgelines);
 vector<Point2f> getFourTops(vector<vector<float>> edgelines, Mat srcImage);
 vector<vector<float>> getEdgelines(vector<vector<float>> edgelines, vector<Vec2f> lines, Mat srcImage, boolean draw);
+int MatchMain(char find_path[], char mode_path[], char store_path[]);
 
 int main() {
 	printf("\n\n<<<<<<<<<<<<  ReadingMeters v0.0.2  >>>>>>>>>>>>\n\n");
@@ -40,51 +42,39 @@ int main() {
 	char name[] = "0.jpg";
 	char dst[] = "result\\0_result.jpg";
 	char dst2[] = "result\\0_aftercut.jpg";
-	
+	char dst4[] = "result\\0_findA.jpg";
+
+	Mat letterA = imread("A.jpg", 1);
+
 	for (int i = 0; i < IMAGE_NUM; i++) {
 		name[0] = 49 + i;
 		dst[7] = 49 + i;
 		dst2[7] = 49 + i;
+		dst4[7] = 49 + i;
 
 		Mat srcImage = imread(name, 1);
 		Mat dstImage;
-		
-		//-------------------Cut Image
-		/*Mat cutImage1 = srcImage(Range(0, srcImage.rows / 2), Range(0, srcImage.cols / 2));
-		Mat cutImage2 = srcImage(Range(0, srcImage.rows / 2), Range(srcImage.cols / 2 + 1, srcImage.cols));
-		Mat cutImage3 = srcImage(Range(srcImage.rows / 2 + 1, srcImage.rows), Range(0, srcImage.cols / 2));
-		Mat cutImage4 = srcImage(Range(srcImage.rows / 2 + 1, srcImage.rows), Range(srcImage.cols / 2 + 1, srcImage.cols));
-		Mat dstImage1, dstImage2, dstImage3, dstImage4;
-
-		dstImage1 = transformProcess(cutImage1, dstImage1);
-		dstImage2 = transformProcess(cutImage2, dstImage2);
-		dstImage3 = transformProcess(cutImage3, dstImage3);
-		dstImage4 = transformProcess(cutImage4, dstImage4);
-
-		Mat dstImageLeft = mergeRows(dstImage1,dstImage3);
-		Mat dstImageRight = mergeRows(dstImage2, dstImage4);
-		dstImage = mergeCols(dstImageLeft, dstImageRight);
-		imwrite("4_merge.jpg", dstImage);
-		*/
 
 		dstImage = transformProcess(srcImage, dstImage);
 
 		imwrite(dst, dstImage);
 
-		dstImage = dstImage(Range(0, (7 * dstImage.rows) / 8), Range(dstImage.cols / 8, (7*dstImage.cols)/8));
+		//-------------------------Model Match
+		int letterFlag = MatchMain(dst,"A.jpg",dst4);
+
+		dstImage = dstImage(Range(0, (7 * dstImage.rows) / 8), Range(dstImage.cols / 8, (7 * dstImage.cols) / 8));
 		Mat lineImage = dstImage;
 		//-------------------Greyed
 		cvtColor(dstImage, dstImage, CV_BGR2GRAY);
 		//-------------------Histogram-equalization
 		equalizeHist(dstImage, dstImage);
 		//-------------------Median Filter
-		medianBlur(dstImage, dstImage, MEDIAN_BLUR_SIZE+8);
+		medianBlur(dstImage, dstImage, MEDIAN_BLUR_SIZE + 8);
 		//--------------------Edge Detection
 		Canny(dstImage, dstImage, CANNY_THRESHOLD_3, CANNY_THRESHOLD_4);
 
 		vector<Vec2f> lines;
-		HoughLines(dstImage, lines, 1, CV_PI / 180, HOUGH_THRESHOL, 0, 0);
-
+		HoughLines(dstImage, lines, 1, CV_PI / 180, HOUGH_THRESHOL_2, 0, 0);
 
 		//--------------------bubble select (in the order of "rho")
 		int bubble_flag = 1;
@@ -111,15 +101,18 @@ int main() {
 			theta += edgelines[i][1];
 		}
 		theta = theta / edgelines.size();
-
 		float rate = ((2 * theta) / CV_PI) - 1;
 
-		printf("theta: %f\n\n", rate);
 		int range;
-		printf("Please input the range: \n");
-		scanf_s("%d", &range);
-
-		printf("result: %2f\n", range*rate);
+		if (letterFlag == 0) {
+			range = 450;
+			printf("%d.jpg-result: %.2f V\n\n", i+1, range*rate);
+		}
+		else if (letterFlag == 1) {
+			range = 150;
+			printf("%d.jpg-result: %.2f A\n\n", i+1, range*rate);
+		}
+			
 
 		imwrite(dst2, lineImage);
 	}
@@ -160,50 +153,11 @@ Mat transformProcess(Mat srcImage, Mat dstImage) {
 	equalizeHist(greyImage, dstImage);
 	//-------------------Median Filter
 	medianBlur(dstImage, dstImage, MEDIAN_BLUR_SIZE);
-
-	//-------------------Image Binarization
-	/*threshold(dstImage, dstImage, GREY_WHITE*0.24, GREY_WHITE, THRESH_BINARY);
-	//medianBlur(dstImage, dstImage, 11);
-	//adaptiveThreshold(dstImage, dstImage, GREY_WHITE, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY,
-	//LAP_FLITER_LEN, 1);
-	/*medianBlur(biImage, dstImage, 11);
-	imwrite("3_bi.jpg", dstImage);
-	//Mat biImage = dstImage;
-	*/
 	//--------------------Edge Detection
 	Canny(dstImage, dstImage, CANNY_THRESHOLD_1, CANNY_THRESHOLD_2);
-
-	//--------------------Laplacian Edge
-	/*Laplacian(dstImage, dstImage, CV_8U, LAP_FLITER_LEN);
-	medianBlur(dstImage, dstImage, 11);
-	imwrite("1_lap.jpg", dstImage);
-	*/
-
-	//--------------------convex
-	/*vector<vector<Point>> g_vContours;
-	vector<Vec4i> g_vHierarchy;
-	findContours(dstImage, g_vContours, g_vHierarchy, RETR_TREE, CHAIN_APPROX_SIMPLE, Point(0, 0));
-
-	vector<vector<Point>> hull(g_vContours.size());
-	for (unsigned int i = 0; i < g_vContours.size(); i++) {
-	convexHull(Mat(g_vContours[i]), hull[i], false);
-	}
-
-	//Mat drawing = Mat::zeros(dstImage.size(), CV_8UC3);
-	Mat drawing =biImage;
-	RNG g_rng(12345);
-	for (unsigned int i = 0; i < g_vContours.size(); i++) {
-	Scalar color = Scalar(g_rng.uniform(0, 255), g_rng.uniform(0, 255), g_rng.uniform(0, 255));
-	drawContours(drawing, g_vContours, i, color, 1, 8, vector<Vec4i>(), 0, Point());
-	drawContours(drawing, hull, i, color, 1, 8, vector<Vec4i>(), 0, Point());
-	}
-	*/
-
 	//--------------------Hough Transform
 	vector<Vec2f> lines;
 	HoughLines(dstImage, lines, 1, CV_PI / 180, HOUGH_THRESHOL, 0, 0);
-	
-
 	//--------------------bubble select (in the order of "rho")
 	int bubble_flag = 1;
 	for (size_t i = 0; i < lines.size(); i++) {
@@ -222,8 +176,8 @@ Mat transformProcess(Mat srcImage, Mat dstImage) {
 	}
 
 	vector<vector<float>> edgelines;
-	edgelines = getEdgelines(edgelines, lines,srcImage, false);
-	
+	edgelines = getEdgelines(edgelines, lines, srcImage, false);
+
 	//imwrite("2_hough.jpg", srcImage);
 
 	vector<Point2f> corners_new = getFourTops(edgelines, srcImage);
@@ -236,7 +190,7 @@ Mat transformProcess(Mat srcImage, Mat dstImage) {
 	//特殊情况特殊处理，只处理了一种情况，后面遇到再加
 	if (a.x == 0 && a.y == 0 && b.x == (float)srcImage.cols && b.y == 0) {
 		vector <float> linesinf;
-		linesinf.push_back(0); linesinf.push_back(CV_PI/2); linesinf.push_back(0.0);
+		linesinf.push_back(0); linesinf.push_back(CV_PI / 2); linesinf.push_back(0.0);
 		edgelines.push_back(linesinf);
 
 		corners_new = getFourTops(edgelines, srcImage);
@@ -246,29 +200,28 @@ Mat transformProcess(Mat srcImage, Mat dstImage) {
 		d = corners_new[3];
 	}
 
+	//打印表盘的四顶点
 	//line(srcImage, a, b, Scalar(0, 0, 255),3); 
-	printf("a:(%f,%f)\n", a.x, a.y);
+	//printf("a:(%f,%f)\n", a.x, a.y);
 	//line(srcImage, b, c, Scalar(0, 0, 255),3); 
-	printf("b:(%f,%f)\n", b.x, b.y);
+	//printf("b:(%f,%f)\n", b.x, b.y);
 	//line(srcImage, c, d, Scalar(0, 0, 255),3); 
-	printf("c:(%f,%f)\n", c.x, c.y);
+	//printf("c:(%f,%f)\n", c.x, c.y);
 	//line(srcImage, d, a, Scalar(0, 0, 255),3); 
-	printf("d:(%f,%f)\n", d.x, d.y);
+	//printf("d:(%f,%f)\n", d.x, d.y);
 	//line(srcImage, Point(0, 0), Point(srcImage.cols, srcImage.rows), Scalar(0, 255, 0));
-
-	//return srcImage;
 
 	float trans_len = ((b.x - a.x) > (c.x - d.x)) ? (b.x - a.x) : (c.x - d.x);
 	float trans_hei = ((d.y - a.y) > (c.y - b.y)) ? (d.y - a.y) : (c.y - b.y);
 	vector<Point2f> corners(4);
-	corners[0] = Point2f(0,0);
-	corners[1] = Point2f(trans_len,0);
-	corners[2] = Point2f(trans_len,trans_hei);
-	corners[3] = Point2f(0,trans_hei);
+	corners[0] = Point2f(0, 0);
+	corners[1] = Point2f(trans_len, 0);
+	corners[2] = Point2f(trans_len, trans_hei);
+	corners[3] = Point2f(0, trans_hei);
 
-	corners_new[0] = (Point2f)a; 
-	corners_new[1] = (Point2f)b; 
-	corners_new[2] = (Point2f)c; 
+	corners_new[0] = (Point2f)a;
+	corners_new[1] = (Point2f)b;
+	corners_new[2] = (Point2f)c;
 	corners_new[3] = (Point2f)d;
 
 	//printf("old:(%d,%d),new:(%d,%d)\n", corners[3].x, corners[3].y, corners_new[3].x, corners_new[3].y);
@@ -363,7 +316,7 @@ vector<Point2f> getFourTops(vector<vector<float>> edgelines, Mat srcImage) {
 	return corners_new;
 }
 
-vector<vector<float>> getEdgelines(vector<vector<float>> edgelines, vector<Vec2f> lines,Mat srcImage, boolean draw) {
+vector<vector<float>> getEdgelines(vector<vector<float>> edgelines, vector<Vec2f> lines, Mat srcImage, boolean draw) {
 	float rho_f = 0.0, theta_f = 0.0;
 	for (size_t i = 0; i < lines.size(); i++) {
 		float rho = lines[i][0], theta = lines[i][1];
@@ -385,6 +338,11 @@ vector<vector<float>> getEdgelines(vector<vector<float>> edgelines, vector<Vec2f
 			Point pt1, pt2;
 			double a = cos(theta), b = sin(theta);
 			double x0 = a*rho, y0 = b*rho;
+
+			if ((((rho - a*srcImage.cols) / b) >= srcImage.rows || ((rho - a*srcImage.cols) / b) <= (srcImage.rows * 5 / 6))
+				&& (((rho - b*srcImage.rows) / a) >= srcImage.cols || ((rho - b*srcImage.rows) / a) <= (srcImage.cols * 5 / 6)))
+				continue;
+
 			pt1.x = cvRound(x0 + HOUGH_LINE_LEN*(-b));
 			pt1.y = cvRound(y0 + HOUGH_LINE_LEN*(a));
 			pt2.x = cvRound(x0 - HOUGH_LINE_LEN*(-b));
@@ -410,4 +368,35 @@ vector<vector<float>> getEdgelines(vector<vector<float>> edgelines, vector<Vec2f
 		}
 	}
 	return edgelines;
+}
+
+int MatchMain(char find_path[], char mode_path[], char store_path[])
+{
+	Mat g_findImage = imread(find_path);
+	Mat modeImage = imread(mode_path);
+
+	Mat findImage;
+	g_findImage.copyTo(findImage);
+
+	Mat dstImage;
+	dstImage.create(findImage.rows - modeImage.rows + 1, findImage.cols - modeImage.cols + 1, CV_32FC1);
+
+	//进行模版匹配，首先是方式0（平方差匹配法）  
+	matchTemplate(findImage, modeImage, dstImage, 0);
+	normalize(dstImage, dstImage, 0, 1, 32);
+ 
+	//首先是从得到的 输出矩阵中得到 最大或最小值（平方差匹配方式是越小越好，所以在这种方式下，找到最小位置）  
+	//找矩阵的最小位置的函数是 minMaxLoc函数  
+	Point minPoint;
+	minMaxLoc(dstImage, 0, 0, &minPoint, 0);
+
+	//开始正式绘制  
+	rectangle(findImage, minPoint, Point(minPoint.x + modeImage.cols, minPoint.y + modeImage.rows)
+		, Scalar(theRNG().uniform(0, 255), theRNG().uniform(0, 255), theRNG().uniform(0, 255)), 3, 8);
+	imwrite(store_path, findImage);
+
+	if (minPoint.x < (findImage.cols / 3) && minPoint.y < (findImage.rows / 3))
+		return 1;
+	else
+		return 0;
 }
