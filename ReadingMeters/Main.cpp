@@ -36,7 +36,7 @@ vector<vector<float>> getEdgelines(vector<vector<float>> edgelines, vector<Vec2f
 int MatchMain(char find_path[], char mode_path[], char store_path[]);
 
 int main() {
-	printf("\n\n<<<<<<<<<<<<  ReadingMeters v0.0.2  >>>>>>>>>>>>\n\n");
+	printf("\n\n<<<<<<<<<<<<  ReadingMeters v0.0.3  >>>>>>>>>>>>\n\n");
 
 	int pic_num = 1;
 
@@ -212,11 +212,12 @@ Mat transformProcess(Mat srcImage, Mat dstImage, char dst[]) {
 
 
 	//打印表盘的四顶点
-	
+	/*
 	printf("a:(%f,%f)\n", a.x, a.y);
 	printf("b:(%f,%f)\n", b.x, b.y);
 	printf("c:(%f,%f)\n", c.x, c.y);
 	printf("d:(%f,%f)\n", d.x, d.y);
+	*/
 	line(srcImage, a, b, Scalar(0, 0, 255), 3);
 	line(srcImage, b, c, Scalar(0, 0, 255), 3); 
 	line(srcImage, c, d, Scalar(0, 0, 255), 3);
