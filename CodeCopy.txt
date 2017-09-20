@@ -1,5 +1,5 @@
 //-------------------Cut Image
-		/*Mat cutImage1 = srcImage(Range(0, srcImage.rows / 2), Range(0, srcImage.cols / 2));
+		Mat cutImage1 = srcImage(Range(0, srcImage.rows / 2), Range(0, srcImage.cols / 2));
 		Mat cutImage2 = srcImage(Range(0, srcImage.rows / 2), Range(srcImage.cols / 2 + 1, srcImage.cols));
 		Mat cutImage3 = srcImage(Range(srcImage.rows / 2 + 1, srcImage.rows), Range(0, srcImage.cols / 2));
 		Mat cutImage4 = srcImage(Range(srcImage.rows / 2 + 1, srcImage.rows), Range(srcImage.cols / 2 + 1, srcImage.cols));
@@ -14,11 +14,11 @@
 		Mat dstImageRight = mergeRows(dstImage2, dstImage4);
 		dstImage = mergeCols(dstImageLeft, dstImageRight);
 		imwrite("4_merge.jpg", dstImage);
-		*/
+		
 
 
 //--------------------convex
-	/*vector<vector<Point>> g_vContours;
+	vector<vector<Point>> g_vContours;
 	vector<Vec4i> g_vHierarchy;
 	findContours(dstImage, g_vContours, g_vHierarchy, RETR_TREE, CHAIN_APPROX_SIMPLE, Point(0, 0));
 
@@ -35,26 +35,211 @@
 	drawContours(drawing, g_vContours, i, color, 1, 8, vector<Vec4i>(), 0, Point());
 	drawContours(drawing, hull, i, color, 1, 8, vector<Vec4i>(), 0, Point());
 	}
-	*/
+	
 
 
 //--------------------Laplacian Edge
-	/*Laplacian(dstImage, dstImage, CV_8U, LAP_FLITER_LEN);
+	Laplacian(dstImage, dstImage, CV_8U, LAP_FLITER_LEN);
 	medianBlur(dstImage, dstImage, 11);
 	imwrite("1_lap.jpg", dstImage);
-	*/
+	
 
 
 //-------------------Image Binarization
-	/*threshold(dstImage, dstImage, GREY_WHITE*0.24, GREY_WHITE, THRESH_BINARY);
+	threshold(dstImage, dstImage, GREY_WHITE*0.24, GREY_WHITE, THRESH_BINARY);
 	//medianBlur(dstImage, dstImage, 11);
 	//adaptiveThreshold(dstImage, dstImage, GREY_WHITE, ADAPTIVE_THRESH_MEAN_C, THRESH_BINARY,
 	//LAP_FLITER_LEN, 1);
 	/*medianBlur(biImage, dstImage, 11);
 	imwrite("3_bi.jpg", dstImage);
 	//Mat biImage = dstImage;
-	*/
+	
+
+
+
+################################## the Version of MatchMain before 2017/09/18 23:53
+int MatchMain(char find_path[], char mode_path[], char store_path[])
+{
+	Mat g_findImage = imread(find_path);
+	Mat modeImage = imread(mode_path);
+
+	Mat findImage;
+	g_findImage.copyTo(findImage);
+
+	Mat dstImage;
+	dstImage.create(findImage.rows - modeImage.rows + 1, findImage.cols - modeImage.cols + 1, CV_32FC1);
+
+	//进行模版匹配，首先是方式0（平方差匹配法）  
+	matchTemplate(findImage, modeImage, dstImage, 0);
+	normalize(dstImage, dstImage, 0, 1, 32);
+ 
+	//首先是从得到的 输出矩阵中得到 最大或最小值（平方差匹配方式是越小越好，所以在这种方式下，找到最小位置）  
+	Point minPoint;
+	minMaxLoc(dstImage, 0, 0, &minPoint, 0);
+
+	//绘制  
+	rectangle(findImage, minPoint, Point(minPoint.x + modeImage.cols, minPoint.y + modeImage.rows)
+		, Scalar(theRNG().uniform(0, 255), theRNG().uniform(0, 255), theRNG().uniform(0, 255)), 3, 8);
+	imwrite(store_path, findImage);
+
+	if (minPoint.x < (findImage.cols / 3) && minPoint.y < (findImage.rows / 3))
+		return 1;
+	else
+		return 0;
+}
 
 
 
 
+################################## the Version of getEdgelines before 2017/09/19 21:55
+vector<vector<float>> getEdgelines(vector<vector<float>> edgelines, vector<Vec2f> lines, Mat srcImage, boolean pointer,char dst[]) {
+	float rho_f = 0.0, theta_f = 0.0;
+	for (size_t i = 0; i < lines.size(); i++) {
+		float rho = lines[i][0], theta = lines[i][1];
+
+		Point pt1, pt2;
+		double a = cos(theta), b = sin(theta);
+		double x0 = a*rho, y0 = b*rho;
+
+		if (!pointer) { //对表盘找线
+			//get out of nearby lines
+			if (rho_f == 0.0 && theta_f == 0.0) {}
+			else if (((rho_f*(1 + ADJACENT_COEFFICIENT_R)) >= rho && (rho_f*(1 - ADJACENT_COEFFICIENT_R)) <= rho)
+				&& ((theta_f*(1 + ADJACENT_COEFFICIENT_T)) >= theta && (theta_f*(1 - ADJACENT_COEFFICIENT_T)) <= theta)) {
+				//continue;
+			}
+			rho_f = rho; theta_f = theta;
+			//get out of lines which is not frame
+			if ((theta >(CV_PI / 24) && theta < ((11 * CV_PI) / 24)) ||
+				(theta >(13 * CV_PI / 24) && theta < ((23 * CV_PI) / 24)))
+				continue;
+			//printf("\trho:%f,\ttheta:%f\n", rho, theta);
+		} 
+		else {      //对指针找线
+			if ((((rho - a*srcImage.cols) / b) >= srcImage.rows || ((rho - a*srcImage.cols) / b) <= (srcImage.rows * 5 / 6))
+				&& (((rho - b*srcImage.rows) / a) >= srcImage.cols || ((rho - b*srcImage.rows) / a) <= (srcImage.cols * 5 / 6)))
+				continue;
+		}
+		
+		//this part is drawing
+		pt1.x = cvRound(x0 + HOUGH_LINE_LEN*(-b));
+		pt1.y = cvRound(y0 + HOUGH_LINE_LEN*(a));
+		pt2.x = cvRound(x0 - HOUGH_LINE_LEN*(-b));
+		pt2.y = cvRound(y0 - HOUGH_LINE_LEN*(a));
+		line(srcImage, pt1, pt2, Scalar(255, 255, 255), 1, 4);
+		imwrite(dst, srcImage);
+
+		//store the line which is qualified
+		if (!pointer) {
+			float type;
+			if (theta <= (CV_PI / 24) || theta >= ((23 * CV_PI) / 24))
+				type = 1.0;
+			else
+				type = 0.0;
+			vector <float> linesinf;
+			linesinf.push_back(rho); linesinf.push_back(theta); linesinf.push_back(type);
+			edgelines.push_back(linesinf);
+		}
+		else {
+			vector <float> linesinf;
+			linesinf.push_back(rho); linesinf.push_back(theta);
+			edgelines.push_back(linesinf);
+		}
+	}
+	return edgelines;
+
+}
+
+
+
+*************************************    result : 2017/09/19  23:12
+
+
+
+
+##########     ReadingMeters v0.0.4     ##########
+##########  Last updating in 2017/9/18  ##########
+
+
+
+<1.jpg's lines>:
+line0:-2160.000000,3.071779
+line1:-2150.000000,3.054326
+line2:121.000000,1.553343
+line3:123.000000,1.553343
+line4:145.000000,1.535890
+line5:719.000000,0.052360
+line6:730.000000,0.069813
+line7:738.000000,0.069813
+line8:739.000000,0.087266
+line9:1260.000000,1.535890
+line10:1266.000000,1.570796
+line11:1280.000000,1.518436
+line12:1283.000000,1.518436
+line13:1285.000000,1.553343
+line14:1558.000000,1.553343
+line15:1575.000000,1.535890
+line16:2118.000000,0.802851
+line17:2121.000000,0.785398
+line18:2127.000000,0.767945
+
+1.jpg-result: -0.48 A
+
+
+<2.jpg's lines>:
+line0:-2232.000000,3.089233
+line1:-2221.000000,3.071779
+line2:-1661.000000,2.914700
+line3:-1635.000000,2.949606
+line4:-1617.000000,2.932153
+line5:544.000000,0.104720
+line6:567.000000,0.122173
+line7:1606.000000,1.588250
+line8:1616.000000,1.570796
+line9:2114.000000,0.785398
+line10:2116.000000,0.785398
+line11:2144.000000,0.750492
+
+2.jpg-result: 400.00 V
+
+
+<3.jpg's lines>:
+line0:-2061.000000,3.036873
+line1:94.000000,1.518436
+line2:115.000000,1.500983
+line3:650.000000,0.052360
+line4:653.000000,0.052360
+line5:660.000000,0.069813
+line6:670.000000,0.069813
+line7:1144.000000,1.518436
+line8:1170.000000,1.500983
+line9:1179.000000,1.535890
+line10:1191.000000,1.483530
+line11:1199.000000,1.518436
+line12:1201.000000,1.518436
+line13:1461.000000,1.535890
+line14:1476.000000,1.518436
+
+3.jpg-result: 0.00 A
+
+
+<4.jpg's lines>:
+line0:-2311.000000,3.036873
+line1:-1761.000000,2.897247
+line2:-1742.000000,2.879793
+line3:-1734.000000,2.844887
+line4:319.000000,1.535890
+line5:325.000000,1.535890
+line6:351.000000,1.518436
+line7:353.000000,1.518436
+line8:1075.000000,0.069813
+line9:1084.000000,0.087266
+line10:1096.000000,0.087266
+line11:1547.000000,1.570796
+line12:1565.000000,1.553343
+line13:1569.000000,1.553343
+line14:1589.000000,1.535890
+
+4.jpg-result: 395.00 V
+
+--------END--------

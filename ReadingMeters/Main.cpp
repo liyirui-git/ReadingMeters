@@ -6,37 +6,37 @@
 #include <opencv2/imgproc/imgproc.hpp>
 #include <Windows.h>
 
-#define IMAGE_NUM 6
+#define IMAGE_NUM 4
 #define WINDOW_CHANGABLESIZE 0
 #define CANNY_THRESHOLD_1 45
 #define CANNY_THRESHOLD_2 90
 #define CANNY_THRESHOLD_3 40
 #define CANNY_THRESHOLD_4 75
-#define MEDIAN_BLUR_SIZE 7 
+#define MEDIAN_BLUR_SIZE 11 
 #define GREY_WHITE 255
 #define GREY_BLACK 0
 #define ADP_THRESHOLD_LEN 1111
 #define LAP_FLITER_LEN 31  //laplacian requires no more zhan 31.
 #define HOUGH_LINE_LEN 5000
-#define HOUGH_THRESHOL 160
+#define HOUGH_THRESHOL 120
 #define HOUGH_THRESHOL_2 140
 #define ADJACENT_COEFFICIENT_R 0.30
 #define ADJACENT_COEFFICIENT_T 0.08
-#define ADJUST_TRANS_HEI 100
 
 using namespace cv;
 using namespace std;
 
 Mat mergeRows(Mat A, Mat B);
 Mat mergeCols(Mat A, Mat B);
-Mat transformProcess(Mat srcImage, Mat dstImage, char dst[]);
+Mat transformProcess(Mat srcImage, Mat dstImage, int num);
 vector<Point2f> getIntersections(vector<vector<float>> edgelines);
 vector<Point2f> getFourTops(vector<vector<float>> edgelines, Mat srcImage);
 vector<vector<float>> getEdgelines(vector<vector<float>> edgelines, vector<Vec2f> lines, Mat srcImage, boolean draw, char dst[]);
-int MatchMain(char find_path[], char mode_path[], char store_path[]);
+Point MatchMain(Mat findImage, Mat modelImage, char store_path[]);
 
 int main() {
-	printf("\n\n<<<<<<<<<<<<  ReadingMeters v0.0.3  >>>>>>>>>>>>\n\n");
+	printf("\n\n\n##########     ReadingMeters v0.0.4     ##########\n");
+	printf("##########  Last updating in 2017/9/19  ##########\n\n\n");
 
 	int pic_num = 1;
 
@@ -45,8 +45,7 @@ int main() {
 	char dst2[] = "result\\0_aftercut.jpg";
 	char dst3[] = "result\\0_bi.jpg";
 	char dst4[] = "result\\0_find.jpg";
-	char dst5[] = "result\\0_edge.jpg";
-	char dst6[] = "result\\0_beforecut.jpg";
+	char dst5[] = "result\\0_edge2.jpg";
 
 	Mat letterA = imread("A.jpg", 1);
 
@@ -57,19 +56,26 @@ int main() {
 		dst3[7] = 49 + i;
 		dst4[7] = 49 + i;
 		dst5[7] = 49 + i;
-		dst6[7] = 49 + i;
 
 		Mat srcImage = imread(name, 1);
 		Mat dstImage;
-
-		dstImage = transformProcess(srcImage, dstImage, dst6);
+		
+		dstImage = transformProcess(srcImage, dstImage, i);
 
 		imwrite(dst, dstImage);
-
+		
 		//-------------------------Model Match
-		int letterFlag = MatchMain(dst,"A.jpg",dst4);
+		Point letterLoc = MatchMain(dstImage,letterA,dst4);
 
-		dstImage = dstImage(Range(0, (15 * dstImage.rows) / 16), Range(dstImage.cols / 8, (7 * dstImage.cols) / 8));
+		int letterFlag;
+		if (letterLoc.x < (dstImage.cols / 3) && letterLoc.y < (dstImage.rows / 3))
+			letterFlag = 1;
+		else
+			letterFlag = 0;
+
+		dstImage = dstImage(Range(dstImage.rows/16, (15 * dstImage.rows) / 16), 
+			Range(dstImage.cols / 16, (15 * dstImage.cols) / 16));
+
 		Mat lineImage = dstImage;
 		//-------------------Greyed
 		cvtColor(dstImage, dstImage, CV_BGR2GRAY);
@@ -127,7 +133,7 @@ int main() {
 		//imwrite(dst2, lineImage);
 	}
 
-	printf("--------END--------\n\n");
+	printf("--------END--------\n\n\a");
 
 	return 0;
 }
@@ -154,20 +160,68 @@ Mat mergeCols(Mat A, Mat B) {
 	return mergedDescriptors;
 }
 
-Mat transformProcess(Mat srcImage, Mat dstImage, char dst[]) {
+Mat transformProcess(Mat srcImage, Mat dstImage, int num) {
 	printf("\n");
+	char dst[] = "result\\0_beforecut.jpg";
+	char dstFind[] = "result\\0_dial.jpg";
+	char dstMerge[] = "result\\0_merge.jpg";
+	char dstEdge[] = "result\\0_edge.jpg";
+	char dstHough[] = "result\\0_hough.jpg";
+	char dstRec[] = "result\\0_rec.jpg";
+	dst[7] = 49 + num;
+	dstFind[7] = 49 + num;
+	dstMerge[7] = 49 + num;
+	dstEdge[7] = 49 + num;
+	dstHough[7] = 49 + num;
+	dstRec[7] = 49 + num;
+	
 	Mat greyImage;
 	//-------------------Greyed
 	cvtColor(srcImage, greyImage, CV_BGR2GRAY);
+	//-------------------Model Match
+	Mat dialImage = imread("model.jpg",1);
+	Point dialLoc = MatchMain(srcImage, dialImage, dstFind);
 	//-------------------Histogram-equalization
 	equalizeHist(greyImage, dstImage);
 	//-------------------Median Filter
 	medianBlur(dstImage, dstImage, MEDIAN_BLUR_SIZE);
+	//-------------------cut into 4pics & binary
+	Mat dstImage1 = dstImage(Range(0, dstImage.rows / 2), Range(0, dstImage.cols / 2));
+	Mat dstImage2 = dstImage(Range(0, dstImage.rows / 2), Range(dstImage.cols / 2 + 1, dstImage.cols));
+	Mat dstImage3 = dstImage(Range(dstImage.rows / 2 + 1, dstImage.rows), Range(0, dstImage.cols / 2));
+	Mat dstImage4 = dstImage(Range(dstImage.rows / 2 + 1, dstImage.rows), Range(dstImage.cols / 2 + 1, dstImage.cols));
+	
+	threshold(dstImage1, dstImage1, GREY_WHITE*0.55, GREY_WHITE, THRESH_BINARY);
+	threshold(dstImage2, dstImage2, GREY_WHITE*0.6, GREY_WHITE, THRESH_BINARY);
+	threshold(dstImage3, dstImage3, GREY_WHITE*0.75, GREY_WHITE, THRESH_BINARY);
+	threshold(dstImage4, dstImage4, GREY_WHITE*0.75, GREY_WHITE, THRESH_BINARY);
+
+	Mat dstImageLeft = mergeRows(dstImage1, dstImage3);
+	Mat dstImageRight = mergeRows(dstImage2, dstImage4);
+	dstImage = mergeCols(dstImageLeft, dstImageRight);
+	imwrite(dstMerge, dstImage);
 	//--------------------Edge Detection
 	Canny(dstImage, dstImage, CANNY_THRESHOLD_1, CANNY_THRESHOLD_2);
+	imwrite(dstEdge, dstImage);
 	//--------------------Hough Transform
 	vector<Vec2f> lines;
 	HoughLines(dstImage, lines, 1, CV_PI / 180, HOUGH_THRESHOL, 0, 0);
+	imwrite(dstHough, dstImage);
+	//----------------get out of lines which cause buy cuting into 4 pics
+
+	for (size_t i = 0; i < lines.size(); i++) {
+		if (((lines[i][0] >= dstImage.rows/2-2 && lines[i][0] <= dstImage.rows/2 + 2) &&
+			lines[i][1] <= (CV_PI / 2 + 0.001) && lines[i][1] >= (CV_PI / 2 - 0.001)) ||
+			((lines[i][0] >= dstImage.cols - 2 || lines[i][0] <= dstImage.cols + 2) &&
+				(lines[i][1] <= (CV_PI + 0.001) && lines[i][1] >= (CV_PI - 0.001))
+				||(lines[i][1] <= 0.001 && lines[i][1] >= -0.001))) {
+			for (size_t j = i; j < lines.size()-1; j++) {
+				lines[j][0] = lines[j + 1][0];
+				lines[j][1] = lines[j + 1][1];
+			}
+			lines.pop_back();
+		}
+	}
 	//--------------------bubble select (in the order of "rho")
 	int bubble_flag = 1;
 	for (size_t i = 0; i < lines.size(); i++) {
@@ -184,9 +238,62 @@ Mat transformProcess(Mat srcImage, Mat dstImage, char dst[]) {
 			}
 		}
 	}
+	//------------------re group the lines
+	vector<Vec2f> lines_new;
+	int part_num = 1;
+	//int lines_num = 0;
+	for (size_t i = 1; i < lines.size(); i++) {
+		float r = lines[i][0];
+		float theta = lines[i][1];
+		float temp_r = lines[i - 1][0];
+		float temp_theta = lines[i - 1][1];
+		if (r - temp_r <= 30 && abs(theta - temp_theta) <= 0.03){
+			part_num++;
+		}
+		else {
+			float total_r = 0, total_theta = 0;
+			for (size_t j = i - part_num, k = 0; k < part_num; j++, k++) {
+				total_r = total_r + lines[j][0];
+				total_theta = total_theta + lines[j][1];
+			}
+			Vec2f content = { total_r / part_num , total_theta / part_num };
+			lines_new.push_back(content);
+			part_num = 1;
+		}
+
+		if (i == lines.size() - 1) {
+			if (part_num == 1) {
+				Vec2f content = { r, theta };
+				lines_new.push_back(content);
+			}
+			else {
+				float total_r = 0, total_theta = 0;
+				for (size_t j = i - part_num + 1, k = 0; k < part_num; j++, k++) {
+					total_r = total_r + lines[j][0];
+					total_theta = total_theta + lines[j][1];
+				}
+				Vec2f content = { total_r / part_num, total_theta / part_num };
+				lines_new.push_back(content);
+			}
+		}
+	}
+
+
+	//------------------print lines:
+	printf("<%d.jpg's lines>:\n", num+1);
+	for (size_t i = 0; i < lines.size(); i++) {
+		printf("line%d:%f,%f\n", i, lines[i][0], lines[i][1]);
+	}
+	printf("\n");
+
+	printf("<%d.jpg's new lines>:\n", num + 1);
+	for (size_t i = 0; i < lines_new.size(); i++) {
+		printf("line%d:%f,%f\n", i, lines_new[i][0], lines_new[i][1]);
+	}
+	printf("\n");
 
 	vector<vector<float>> edgelines;
-	edgelines = getEdgelines(edgelines, lines, srcImage, false,dst);
+	edgelines = getEdgelines(edgelines, lines_new, srcImage, false,dst);
 
 	vector<Point2f> corners_new = getFourTops(edgelines, srcImage);
 
@@ -211,24 +318,16 @@ Mat transformProcess(Mat srcImage, Mat dstImage, char dst[]) {
 
 
 
-	//打印表盘的四顶点
-	/*
-	printf("a:(%f,%f)\n", a.x, a.y);
-	printf("b:(%f,%f)\n", b.x, b.y);
-	printf("c:(%f,%f)\n", c.x, c.y);
-	printf("d:(%f,%f)\n", d.x, d.y);
-	*/
+	//打印表盘的四边
 	line(srcImage, a, b, Scalar(0, 0, 255), 3);
 	line(srcImage, b, c, Scalar(0, 0, 255), 3); 
 	line(srcImage, c, d, Scalar(0, 0, 255), 3);
 	line(srcImage, d, a, Scalar(0, 0, 255), 3);
-	//line(srcImage, Point(0, 0), Point(srcImage.cols, srcImage.rows), Scalar(0, 255, 0));
-	dst[8] = '-';
-	imwrite(dst, srcImage);
+
+	imwrite(dstRec, srcImage);
 
 	float trans_len = ((b.x - a.x) > (c.x - d.x)) ? (b.x - a.x) : (c.x - d.x);
-	float trans_hei = ((d.y - a.y) > (c.y - b.y)) ? (d.y - a.y) : (c.y - b.y);
-	trans_hei = trans_hei + ADJUST_TRANS_HEI;
+	float trans_hei = trans_len;
 
 	vector<Point2f> corners(4);
 	corners[0] = Point2f(0, 0);
@@ -329,8 +428,9 @@ vector<Point2f> getFourTops(vector<vector<float>> edgelines, Mat srcImage) {
 	return corners_new;
 }
 
-vector<vector<float>> getEdgelines(vector<vector<float>> edgelines, vector<Vec2f> lines, Mat srcImage, boolean pointer,char dst[]) {
-	float rho_f = 0.0, theta_f = 0.0;
+vector<vector<float>> getEdgelines(vector<vector<float>> edgelines, vector<Vec2f> lines,
+	Mat srcImage, boolean pointer,char dst[]) {
+
 	for (size_t i = 0; i < lines.size(); i++) {
 		float rho = lines[i][0], theta = lines[i][1];
 
@@ -339,13 +439,6 @@ vector<vector<float>> getEdgelines(vector<vector<float>> edgelines, vector<Vec2f
 		double x0 = a*rho, y0 = b*rho;
 
 		if (!pointer) { //对表盘找线
-			//get out of nearby lines
-			if (rho_f == 0.0 && theta_f == 0.0) {}
-			else if (((rho_f*(1 + ADJACENT_COEFFICIENT_R)) >= rho && (rho_f*(1 - ADJACENT_COEFFICIENT_R)) <= rho)
-				&& ((theta_f*(1 + ADJACENT_COEFFICIENT_T)) >= theta && (theta_f*(1 - ADJACENT_COEFFICIENT_T)) <= theta)) {
-				continue;
-			}
-			rho_f = rho; theta_f = theta;
 			//get out of lines which is not frame
 			if ((theta >(CV_PI / 24) && theta < ((11 * CV_PI) / 24)) ||
 				(theta >(13 * CV_PI / 24) && theta < ((23 * CV_PI) / 24)))
@@ -353,8 +446,10 @@ vector<vector<float>> getEdgelines(vector<vector<float>> edgelines, vector<Vec2f
 			//printf("\trho:%f,\ttheta:%f\n", rho, theta);
 		} 
 		else {      //对指针找线
-			if ((((rho - a*srcImage.cols) / b) >= srcImage.rows || ((rho - a*srcImage.cols) / b) <= (srcImage.rows * 5 / 6))
-				&& (((rho - b*srcImage.rows) / a) >= srcImage.cols || ((rho - b*srcImage.rows) / a) <= (srcImage.cols * 5 / 6)))
+			if ((((rho - a*srcImage.cols) / b) >= srcImage.rows 
+				|| ((rho - a*srcImage.cols) / b) <= (srcImage.rows * 5 / 6))
+				&& (((rho - b*srcImage.rows) / a) >= srcImage.cols 
+					|| ((rho - b*srcImage.rows) / a) <= (srcImage.cols * 5 / 6)))
 				continue;
 		}
 		
@@ -387,22 +482,16 @@ vector<vector<float>> getEdgelines(vector<vector<float>> edgelines, vector<Vec2f
 
 }
 
-int MatchMain(char find_path[], char mode_path[], char store_path[])
+Point MatchMain(Mat findImage, Mat modeImage, char store_path[])
 {
-	Mat g_findImage = imread(find_path);
-	Mat modeImage = imread(mode_path);
-
-	Mat findImage;
-	g_findImage.copyTo(findImage);
-
 	Mat dstImage;
 	dstImage.create(findImage.rows - modeImage.rows + 1, findImage.cols - modeImage.cols + 1, CV_32FC1);
 
-	//进行模版匹配，首先是方式0（平方差匹配法）  
-	matchTemplate(findImage, modeImage, dstImage, 0);
+	//进行模版匹配（归一化平方差匹配法）  
+	matchTemplate(findImage, modeImage, dstImage, TM_SQDIFF_NORMED);
 	normalize(dstImage, dstImage, 0, 1, 32);
- 
-	//首先是从得到的 输出矩阵中得到 最大或最小值（平方差匹配方式是越小越好，所以在这种方式下，找到最小位置）  
+
+	//首先是从得到的 输出矩阵中得到 最大或最小值（归一化平方差匹配方式是越小越好，所以在这种方式下，找到最小位置）  
 	Point minPoint;
 	minMaxLoc(dstImage, 0, 0, &minPoint, 0);
 
@@ -411,8 +500,10 @@ int MatchMain(char find_path[], char mode_path[], char store_path[])
 		, Scalar(theRNG().uniform(0, 255), theRNG().uniform(0, 255), theRNG().uniform(0, 255)), 3, 8);
 	imwrite(store_path, findImage);
 
-	if (minPoint.x < (findImage.cols / 3) && minPoint.y < (findImage.rows / 3))
-		return 1;
-	else
-		return 0;
+	Point resultPoint = Point((minPoint.x + modeImage.cols/2), (minPoint.y + modeImage.rows/2));
+
+	//circle(findImage, resultPoint, 5, Scalar(theRNG().uniform(0, 255), theRNG().uniform(0, 255), theRNG().uniform(0, 255)), 3, 8);
+
+	return resultPoint;
+	//return minPoint;
 }
