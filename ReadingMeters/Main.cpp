@@ -22,6 +22,8 @@
 #define HOUGH_THRESHOL_2 140
 #define ADJACENT_COEFFICIENT_R 0.30
 #define ADJACENT_COEFFICIENT_T 0.08
+#define TRANS_LEN 1500
+#define FRAME_CUT 15
 
 using namespace cv;
 using namespace std;
@@ -30,13 +32,17 @@ Mat mergeRows(Mat A, Mat B);
 Mat mergeCols(Mat A, Mat B);
 Mat transformProcess(Mat srcImage, Mat dstImage, int num);
 vector<Point2f> getIntersections(vector<vector<float>> edgelines);
-vector<Point2f> getFourTops(vector<vector<float>> edgelines, Mat srcImage);
+vector<Point2f> getFourCorners(vector<vector<float>> edgelines, Mat srcImage);
 vector<vector<float>> getEdgelines(vector<vector<float>> edgelines, vector<Vec2f> lines, Mat srcImage, boolean draw, char dst[]);
 Point MatchMain(Mat findImage, Mat modelImage, char store_path[]);
+vector <Vec2f> MergeLines(vector<Vec2f> lines, int threshold_r, float threshold_theta, int bubble);
+void DrawLine(float rho, float theta, Mat srcImage, char dst[], Scalar s);
+vector <Vec2f> BubbleSort(vector<Vec2f> lines, int type);
+void PrintLines(vector<Vec2f> lines, int num);
 
 int main() {
 	printf("\n\n\n##########     ReadingMeters v0.0.4     ##########\n");
-	printf("##########  Last updating in 2017/9/19  ##########\n\n\n");
+	printf("##########  Last updating in 2017/9/20  ##########\n\n\n");
 
 	int pic_num = 1;
 
@@ -46,6 +52,7 @@ int main() {
 	char dst3[] = "result\\0_bi.jpg";
 	char dst4[] = "result\\0_find.jpg";
 	char dst5[] = "result\\0_edge2.jpg";
+	char dst6[] = "result\\0_pointer.jpg";
 
 	Mat letterA = imread("A.jpg", 1);
 
@@ -56,6 +63,7 @@ int main() {
 		dst3[7] = 49 + i;
 		dst4[7] = 49 + i;
 		dst5[7] = 49 + i;
+		dst6[7] = 49 + i;
 
 		Mat srcImage = imread(name, 1);
 		Mat dstImage;
@@ -64,17 +72,20 @@ int main() {
 
 		imwrite(dst, dstImage);
 		
+		Mat modelImage = dstImage(Range(0, 600), Range(0, 600));
+
 		//-------------------------Model Match
-		Point letterLoc = MatchMain(dstImage,letterA,dst4);
+		Point letterLoc = MatchMain(modelImage,letterA,dst4);
+
+		//printf("letterLoc:(%d,%d)\n\n", letterLoc.x, letterLoc.y);
 
 		int letterFlag;
-		if (letterLoc.x < (dstImage.cols / 3) && letterLoc.y < (dstImage.rows / 3))
+		if (letterLoc.x < 230 && letterLoc.x > 220 && letterLoc.y < 195 && letterLoc.y > 175)
 			letterFlag = 1;
 		else
 			letterFlag = 0;
 
-		dstImage = dstImage(Range(dstImage.rows/16, (15 * dstImage.rows) / 16), 
-			Range(dstImage.cols / 16, (15 * dstImage.cols) / 16));
+		dstImage = dstImage(Range(FRAME_CUT, dstImage.rows- FRAME_CUT), Range(FRAME_CUT, dstImage.cols- FRAME_CUT));
 
 		Mat lineImage = dstImage;
 		//-------------------Greyed
@@ -89,35 +100,42 @@ int main() {
 		//--------------------Edge Detection
 		Canny(dstImage, dstImage, CANNY_THRESHOLD_3, CANNY_THRESHOLD_4);
 		imwrite(dst5, dstImage);
-
+		//-------------------Hough Transform
 		vector<Vec2f> lines;
 		HoughLines(dstImage, lines, 1, CV_PI / 180, HOUGH_THRESHOL_2, 0, 0);
+		//-------------------MergeLines
+		vector<Vec2f> lines_new = BubbleSort(lines, 0);
 
-		//--------------------bubble select (in the order of "rho")
-		int bubble_flag = 1;
-		for (size_t i = 0; i < lines.size(); i++) {
-			if (bubble_flag == 1)
-				bubble_flag = 0;
-			else
-				break;
-			for (size_t j = 1; j < lines.size(); j++) {
-				if (lines[j - 1][0] > lines[j][0]) {
-					float swp1 = lines[j - 1][0], swp2 = lines[j - 1][1];
-					lines[j - 1][0] = lines[j][0]; lines[j - 1][1] = lines[j][1];
-					lines[j][0] = swp1; lines[j][1] = swp2;
-					bubble_flag = 1;
-				}
-			}
+		//PrintLines(lines_new, i);
+
+		vector<vector<float>> edgelines_f;
+		edgelines_f = getEdgelines(edgelines_f, lines_new, lineImage, true, dst2);
+
+		vector<Vec2f> edgelines_2f;
+		for (size_t i = 0; i < edgelines_f.size(); i++) {
+			Vec2f el = { edgelines_f[i][0], edgelines_f[i][1] };
+			edgelines_2f.push_back(el);
 		}
 
-		vector<vector<float>> edgelines;
-		edgelines = getEdgelines(edgelines, lines, lineImage, true, dst2);
+		//PrintLines(edgelines_2f, i);
+
+		vector<Vec2f> edgelines = MergeLines(edgelines_2f, 13, 0.018, 1);
+		//PrintLines(edgelines, i);
+
+		//draw line
+		for (size_t i = 0; i < edgelines.size(); i++) {
+			DrawLine(edgelines[i][0], edgelines[i][1], lineImage, dst6, Scalar(255,0,0));
+		}
 
 		float theta = 0;
+		float rho = 0;
 		for (size_t i = 0; i < edgelines.size(); i++) {
+			rho += edgelines[i][0];
 			theta += edgelines[i][1];
 		}
 		theta = theta / edgelines.size();
+		rho = rho / edgelines.size();
+		DrawLine(rho, theta, lineImage, dst6, Scalar(0,255,0));
 		float rate = ((2 * theta) / CV_PI) - 1;
 
 		int range;
@@ -130,7 +148,6 @@ int main() {
 			printf("%d.jpg-result: %.2f A\n\n", i+1, range*rate);
 		}
 			
-		//imwrite(dst2, lineImage);
 	}
 
 	printf("--------END--------\n\n\a");
@@ -206,7 +223,10 @@ Mat transformProcess(Mat srcImage, Mat dstImage, int num) {
 	//--------------------Hough Transform
 	vector<Vec2f> lines;
 	HoughLines(dstImage, lines, 1, CV_PI / 180, HOUGH_THRESHOL, 0, 0);
-	imwrite(dstHough, dstImage);
+
+	for (size_t i = 0; i < lines.size(); i++) {
+		DrawLine(lines[i][0], lines[i][1], dstImage, dstHough, Scalar(255, 0, 0));
+	}
 	//----------------get out of lines which cause buy cuting into 4 pics
 
 	for (size_t i = 0; i < lines.size(); i++) {
@@ -222,80 +242,16 @@ Mat transformProcess(Mat srcImage, Mat dstImage, int num) {
 			lines.pop_back();
 		}
 	}
-	//--------------------bubble select (in the order of "rho")
-	int bubble_flag = 1;
-	for (size_t i = 0; i < lines.size(); i++) {
-		if (bubble_flag == 1)
-			bubble_flag = 0;
-		else
-			break;
-		for (size_t j = 1; j < lines.size(); j++) {
-			if (lines[j - 1][0] > lines[j][0]) {
-				float swp1 = lines[j - 1][0], swp2 = lines[j - 1][1];
-				lines[j - 1][0] = lines[j][0]; lines[j - 1][1] = lines[j][1];
-				lines[j][0] = swp1; lines[j][1] = swp2;
-				bubble_flag = 1;
-			}
-		}
-	}
-	//------------------re group the lines
-	vector<Vec2f> lines_new;
-	int part_num = 1;
-	//int lines_num = 0;
-	for (size_t i = 1; i < lines.size(); i++) {
-		float r = lines[i][0];
-		float theta = lines[i][1];
-		float temp_r = lines[i - 1][0];
-		float temp_theta = lines[i - 1][1];
-		if (r - temp_r <= 30 && abs(theta - temp_theta) <= 0.03){
-			part_num++;
-		}
-		else {
-			float total_r = 0, total_theta = 0;
-			for (size_t j = i - part_num, k = 0; k < part_num; j++, k++) {
-				total_r = total_r + lines[j][0];
-				total_theta = total_theta + lines[j][1];
-			}
-			Vec2f content = { total_r / part_num , total_theta / part_num };
-			lines_new.push_back(content);
-			part_num = 1;
-		}
-
-		if (i == lines.size() - 1) {
-			if (part_num == 1) {
-				Vec2f content = { r, theta };
-				lines_new.push_back(content);
-			}
-			else {
-				float total_r = 0, total_theta = 0;
-				for (size_t j = i - part_num + 1, k = 0; k < part_num; j++, k++) {
-					total_r = total_r + lines[j][0];
-					total_theta = total_theta + lines[j][1];
-				}
-				Vec2f content = { total_r / part_num, total_theta / part_num };
-				lines_new.push_back(content);
-			}
-		}
-	}
-
+	
+	vector<Vec2f> lines_new = MergeLines(lines, 30, 0.3, 0);
 
 	//------------------print lines:
-	printf("<%d.jpg's lines>:\n", num+1);
-	for (size_t i = 0; i < lines.size(); i++) {
-		printf("line%d:%f,%f\n", i, lines[i][0], lines[i][1]);
-	}
-	printf("\n");
-
-	printf("<%d.jpg's new lines>:\n", num + 1);
-	for (size_t i = 0; i < lines_new.size(); i++) {
-		printf("line%d:%f,%f\n", i, lines_new[i][0], lines_new[i][1]);
-	}
-	printf("\n");
+	//PrintLine();
 
 	vector<vector<float>> edgelines;
 	edgelines = getEdgelines(edgelines, lines_new, srcImage, false,dst);
 
-	vector<Point2f> corners_new = getFourTops(edgelines, srcImage);
+	vector<Point2f> corners_new = getFourCorners(edgelines, srcImage);
 
 	Point2f a = corners_new[0];
 	Point2f b = corners_new[1];
@@ -308,7 +264,7 @@ Mat transformProcess(Mat srcImage, Mat dstImage, int num) {
 		linesinf.push_back(0); linesinf.push_back(CV_PI / 2); linesinf.push_back(0.0);
 		edgelines.push_back(linesinf);
 
-		corners_new = getFourTops(edgelines, srcImage);
+		corners_new = getFourCorners(edgelines, srcImage);
 		a = corners_new[0];
 		b = corners_new[1];
 		c = corners_new[2];
@@ -319,21 +275,18 @@ Mat transformProcess(Mat srcImage, Mat dstImage, int num) {
 
 
 	//打印表盘的四边
-	line(srcImage, a, b, Scalar(0, 0, 255), 3);
-	line(srcImage, b, c, Scalar(0, 0, 255), 3); 
-	line(srcImage, c, d, Scalar(0, 0, 255), 3);
-	line(srcImage, d, a, Scalar(0, 0, 255), 3);
+	line(srcImage, a, b, Scalar(0, 0, 255), 5);
+	line(srcImage, b, c, Scalar(0, 0, 255), 5); 
+	line(srcImage, c, d, Scalar(0, 0, 255), 5);
+	line(srcImage, d, a, Scalar(0, 0, 255), 5);
 
 	imwrite(dstRec, srcImage);
 
-	float trans_len = ((b.x - a.x) > (c.x - d.x)) ? (b.x - a.x) : (c.x - d.x);
-	float trans_hei = trans_len;
-
 	vector<Point2f> corners(4);
 	corners[0] = Point2f(0, 0);
-	corners[1] = Point2f(trans_len, 0);
-	corners[2] = Point2f(trans_len, trans_hei);
-	corners[3] = Point2f(0, trans_hei);
+	corners[1] = Point2f(TRANS_LEN, 0);
+	corners[2] = Point2f(TRANS_LEN, TRANS_LEN);
+	corners[3] = Point2f(0, TRANS_LEN);
 
 	corners_new[0] = (Point2f)a;
 	corners_new[1] = (Point2f)b;
@@ -349,13 +302,14 @@ Mat transformProcess(Mat srcImage, Mat dstImage, int num) {
 		}
 	}
 
-	Mat transImage(trans_hei, trans_len, CV_32FC2);
+	Mat transImage(TRANS_LEN, TRANS_LEN, CV_32FC2);
 	warpPerspective(srcImage, transImage, transform, transImage.size());
 
 	return transImage;
 }
 
 vector<Point2f> getIntersections(vector<vector<float>> edgelines) {
+	//求交点
 	vector<Point2f> intersections;
 	for (size_t i = 0; i < edgelines.size(); i++) {
 		for (size_t j = i + 1; j < edgelines.size(); j++) {
@@ -368,14 +322,13 @@ vector<Point2f> getIntersections(vector<vector<float>> edgelines) {
 				double y = (a1*r2 - a2*r1) / (a1*b2 - a2*b1);
 				Point2f p = Point2f((float)x, (float)y);
 				intersections.push_back(p);
-				//printf("(%f,%f)\n", p.x, p.y);
 			}
 		}
 	}
 	return intersections;
 }
 
-vector<Point2f> getFourTops(vector<vector<float>> edgelines, Mat srcImage) {
+vector<Point2f> getFourCorners(vector<vector<float>> edgelines, Mat srcImage) {
 	//求出所有直线交点
 	vector<Point2f> intersections = getIntersections(edgelines);
 
@@ -437,29 +390,25 @@ vector<vector<float>> getEdgelines(vector<vector<float>> edgelines, vector<Vec2f
 		Point pt1, pt2;
 		double a = cos(theta), b = sin(theta);
 		double x0 = a*rho, y0 = b*rho;
-
-		if (!pointer) { //对表盘找线
+		//----------find the edge of plate
+		if (!pointer) { 
 			//get out of lines which is not frame
 			if ((theta >(CV_PI / 24) && theta < ((11 * CV_PI) / 24)) ||
 				(theta >(13 * CV_PI / 24) && theta < ((23 * CV_PI) / 24)))
 				continue;
-			//printf("\trho:%f,\ttheta:%f\n", rho, theta);
 		} 
-		else {      //对指针找线
-			if ((((rho - a*srcImage.cols) / b) >= srcImage.rows 
-				|| ((rho - a*srcImage.cols) / b) <= (srcImage.rows * 5 / 6))
-				&& (((rho - b*srcImage.rows) / a) >= srcImage.cols 
-					|| ((rho - b*srcImage.rows) / a) <= (srcImage.cols * 5 / 6)))
+		//----------find the edge of pointer
+		else {      
+			//get out of lines which in right blow caused by the frame of plate
+			if (rho >= 1680 && rho <= 1710 && theta >= 0.78 && theta <= 0.83)
+			{
 				continue;
+			}
 		}
 		
 		//this part is drawing
-		pt1.x = cvRound(x0 + HOUGH_LINE_LEN*(-b));
-		pt1.y = cvRound(y0 + HOUGH_LINE_LEN*(a));
-		pt2.x = cvRound(x0 - HOUGH_LINE_LEN*(-b));
-		pt2.y = cvRound(y0 - HOUGH_LINE_LEN*(a));
-		line(srcImage, pt1, pt2, Scalar(255, 255, 255), 1, 4);
-		imwrite(dst, srcImage);
+		if(!pointer)
+			DrawLine(rho, theta, srcImage, dst, Scalar(255,255,255));
 
 		//store the line which is qualified
 		if (!pointer) {
@@ -474,7 +423,8 @@ vector<vector<float>> getEdgelines(vector<vector<float>> edgelines, vector<Vec2f
 		}
 		else {
 			vector <float> linesinf;
-			linesinf.push_back(rho); linesinf.push_back(theta);
+			linesinf.push_back(rho); 
+			linesinf.push_back(theta);
 			edgelines.push_back(linesinf);
 		}
 	}
@@ -506,4 +456,117 @@ Point MatchMain(Mat findImage, Mat modeImage, char store_path[])
 
 	return resultPoint;
 	//return minPoint;
+}
+vector <Vec2f> BubbleSort(vector<Vec2f> lines, int type) {
+	//sort with compare the first number
+	if (type == 0) {
+		int bubble_flag = 1;
+		for (size_t i = 0; i < lines.size(); i++) {
+			if (bubble_flag == 1)
+				bubble_flag = 0;
+			else
+				break;
+			for (size_t j = 1; j < lines.size(); j++) {
+				if (lines[j - 1][0] > lines[j][0]) {
+					float swp1 = lines[j - 1][0], swp2 = lines[j - 1][1];
+					lines[j - 1][0] = lines[j][0]; lines[j - 1][1] = lines[j][1];
+					lines[j][0] = swp1; lines[j][1] = swp2;
+					bubble_flag = 1;
+				}
+			}
+		}
+
+		return lines;
+	}
+	//sort with compare the second number
+	else if (type == 1) {
+		int bubble_flag = 1;
+		for (size_t i = 0; i < lines.size(); i++) {
+			if (bubble_flag == 1)
+				bubble_flag = 0;
+			else
+				break;
+			for (size_t j = 1; j < lines.size(); j++) {
+				if (lines[j - 1][1] > lines[j][1]) {
+					float swp1 = lines[j - 1][0], swp2 = lines[j - 1][1];
+					lines[j - 1][0] = lines[j][0]; lines[j - 1][1] = lines[j][1];
+					lines[j][0] = swp1; lines[j][1] = swp2;
+					bubble_flag = 1;
+				}
+			}
+		}
+
+		return lines;
+	}
+	
+}
+
+
+vector <Vec2f> MergeLines(vector<Vec2f> lines_in, int threshold_r, float threshold_theta, int bubble) {
+	//--------------------bubble select
+	vector<Vec2f> lines = BubbleSort(lines_in, bubble);
+	//if(bubble == 1)
+		//PrintLines(lines, 555);
+	//------------------re group the lines
+	vector<Vec2f> lines_new;
+	int part_num = 1;
+	//int lines_num = 0;
+	for (size_t i = 1; i < lines.size(); i++) {
+		float r = lines[i][0];
+		float theta = lines[i][1];
+		float temp_r = lines[i - 1][0];
+		float temp_theta = lines[i - 1][1];
+		if (r - temp_r <= threshold_r && abs(theta - temp_theta) <= threshold_theta) {
+			part_num++;
+		}
+		else {
+			float total_r = 0, total_theta = 0;
+			for (size_t j = i - part_num, k = 0; k < part_num; j++, k++) {
+				total_r = total_r + lines[j][0];
+				total_theta = total_theta + lines[j][1];
+			}
+			Vec2f content = { total_r / part_num , total_theta / part_num };
+			lines_new.push_back(content);
+			part_num = 1;
+		}
+
+		if (i == lines.size() - 1) {
+			if (part_num == 1) {
+				Vec2f content = { r, theta };
+				lines_new.push_back(content);
+			}
+			else {
+				float total_r = 0, total_theta = 0;
+				for (size_t j = i - part_num + 1, k = 0; k < part_num; j++, k++) {
+					total_r = total_r + lines[j][0];
+					total_theta = total_theta + lines[j][1];
+				}
+				Vec2f content = { total_r / part_num, total_theta / part_num };
+				lines_new.push_back(content);
+			}
+		}
+	}
+
+	return lines_new;
+}
+
+void DrawLine(float rho, float theta, Mat srcImage, char dst[], Scalar s) {
+	Point pt1, pt2;
+	double a = cos(theta), b = sin(theta);
+	double x0 = a*rho, y0 = b*rho;
+
+	pt1.x = cvRound(x0 + HOUGH_LINE_LEN*(-b));
+	pt1.y = cvRound(y0 + HOUGH_LINE_LEN*(a));
+	pt2.x = cvRound(x0 - HOUGH_LINE_LEN*(-b));
+	pt2.y = cvRound(y0 - HOUGH_LINE_LEN*(a));
+	line(srcImage, pt1, pt2, s, 2, 4);
+	imwrite(dst, srcImage);
+}
+
+void PrintLines(vector<Vec2f> lines, int num) {
+	printf("<%d.jpg's lines>:\n", num + 1);
+	for (size_t i = 0; i < lines.size(); i++) {
+		printf("line%d:%f,%f\n", i, lines[i][0], lines[i][1]);
+	}
+	printf("\n");
 }
