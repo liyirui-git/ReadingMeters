@@ -1,10 +1,12 @@
-﻿#include <stdio.h>
+﻿//press ctrl + F5 to run this programme in vs 2015
+#include <stdio.h>
 #include <cv.h>
 #include <highgui.h>
 #include <cvaux.h>
 #include <opencv2/opencv.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <Windows.h>
+#include <math.h>
 
 #define IMAGE_NUM 4
 #define WINDOW_CHANGABLESIZE 0
@@ -24,6 +26,8 @@
 #define ADJACENT_COEFFICIENT_T 0.08
 #define TRANS_LEN 1500
 #define FRAME_CUT 15
+#define VARIANCE_THRESHOLD0 1000
+#define VARIANCE_THRESHOLD1 10
 
 using namespace cv;
 using namespace std;
@@ -39,10 +43,12 @@ vector <Vec2f> MergeLines(vector<Vec2f> lines, int threshold_r, float threshold_
 void DrawLine(float rho, float theta, Mat srcImage, char dst[], Scalar s);
 vector <Vec2f> BubbleSort(vector<Vec2f> lines, int type);
 void PrintLines(vector<Vec2f> lines, int num);
+Mat SeperateRGB(Mat srcImage, int num, int low, int high);
+vector<Vec2f> VarianceSelectOfLines(vector<Vec2f> lines, float threshold0, float threshold1);
 
 int main() {
-	printf("\n\n\n##########     ReadingMeters v0.0.4     ##########\n");
-	printf("##########  Last updating in 2017/9/20  ##########\n\n\n");
+	printf("\n\n\n##########     ReadingMeters v0.0.5     ##########\n");
+	printf("##########  Last updating in 2017/9/27   ##########\n\n\n");
 
 	int pic_num = 1;
 
@@ -53,6 +59,7 @@ int main() {
 	char dst4[] = "result\\0_find.jpg";
 	char dst5[] = "result\\0_edge2.jpg";
 	char dst6[] = "result\\0_pointer.jpg";
+	char dst7[] = "result\\0_afterDilate.jpg";
 
 	Mat letterA = imread("A.jpg", 1);
 
@@ -64,10 +71,30 @@ int main() {
 		dst4[7] = 49 + i;
 		dst5[7] = 49 + i;
 		dst6[7] = 49 + i;
+		dst7[7] = 49 + i;
 
 		Mat srcImage = imread(name, 1);
 		Mat dstImage;
+		dstImage.create(srcImage.rows, srcImage.cols, srcImage.type());
+
 		
+		Mat dstImage1 = dstImage(Range(0, dstImage.rows / 2), Range(0, dstImage.cols));
+		Mat dstImage2 = dstImage(Range(dstImage.rows / 2 + 1, dstImage.rows), Range(0, dstImage.cols));
+		Mat srcImage1 = srcImage(Range(0, srcImage.rows / 2), Range(0, srcImage.cols));
+		Mat srcImage2 = srcImage(Range(srcImage.rows / 2 + 1, srcImage.rows), Range(0, srcImage.cols));
+
+		dstImage1 = SeperateRGB(srcImage1, i, 85, 180);
+		dstImage2 = SeperateRGB(srcImage2, i, 105, 180);
+
+		dstImage = mergeRows(dstImage1, dstImage2);
+
+		Mat element = getStructuringElement(MORPH_ELLIPSE, Size(5, 5));
+		dilate(dstImage, dstImage, element);
+
+		imwrite(dst7, dstImage);
+		
+
+		//^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 		dstImage = transformProcess(srcImage, dstImage, i);
 
 		imwrite(dst, dstImage);
@@ -147,10 +174,10 @@ int main() {
 			range = 150;
 			printf("%d.jpg-result: %.2f A\n\n", i+1, range*rate);
 		}
-			
+		
 	}
-
-	printf("--------END--------\n\n\a");
+	
+	printf("--------END--------\n\n\a\a");
 
 	return 0;
 }
@@ -183,7 +210,7 @@ Mat transformProcess(Mat srcImage, Mat dstImage, int num) {
 	char dstFind[] = "result\\0_dial.jpg";
 	char dstMerge[] = "result\\0_merge.jpg";
 	char dstEdge[] = "result\\0_edge.jpg";
-	char dstHough[] = "result\\0_hough.jpg";
+	char dstHough[] = "result\\0_hough1.jpg";
 	char dstRec[] = "result\\0_rec.jpg";
 	dst[7] = 49 + num;
 	dstFind[7] = 49 + num;
@@ -191,7 +218,7 @@ Mat transformProcess(Mat srcImage, Mat dstImage, int num) {
 	dstEdge[7] = 49 + num;
 	dstHough[7] = 49 + num;
 	dstRec[7] = 49 + num;
-	
+
 	Mat greyImage;
 	//-------------------Greyed
 	cvtColor(srcImage, greyImage, CV_BGR2GRAY);
@@ -273,12 +300,34 @@ Mat transformProcess(Mat srcImage, Mat dstImage, int num) {
 	//################################################# 补充完整剩下的三种情况 ##################################
 
 
-
 	//打印表盘的四边
 	line(srcImage, a, b, Scalar(0, 0, 255), 5);
 	line(srcImage, b, c, Scalar(0, 0, 255), 5); 
 	line(srcImage, c, d, Scalar(0, 0, 255), 5);
 	line(srcImage, d, a, Scalar(0, 0, 255), 5);
+
+	float k1, t1, k2, t2;
+	int x1, y1;
+	k1 = (a.y - c.y) / (a.x - c.x);
+	t1 = c.y - k1*c.x;
+	k2 = (b.y - d.y) / (b.x - d.x);
+	t2 = d.y - k2*d.x;
+	x1 = (int)((t2 - t1) / (k1 - k2));
+	y1 = (int)(k1*x1 + t1);
+
+	Point findMiddle = Point(x1, y1);
+
+	circle(srcImage, findMiddle, 10, Scalar(255,255,255), 4);
+	circle(srcImage, dialLoc, 10, Scalar(255, 255, 255), 4);
+
+	printf("<%d.jpg> midlle point\n model: (%d,%d); find: (%d,%d).\n", num, dialLoc.x, dialLoc.y, findMiddle.x, findMiddle.y);
+
+	//so a comparation is needed here!
+	int len_square = (d.x-c.x)*(d.x-c.x) + (d.y-c.y)*(d.y*c.y);
+	int distance_square = (findMiddle.x - dialLoc.x)*(findMiddle.x - dialLoc.x) 
+		+ (findMiddle.y - dialLoc.y)*(findMiddle.y - dialLoc.y);
+	if (distance_square > (len_square/16))
+		printf("<error>: center not matching.");
 
 	imwrite(dstRec, srcImage);
 
@@ -452,8 +501,6 @@ Point MatchMain(Mat findImage, Mat modeImage, char store_path[])
 
 	Point resultPoint = Point((minPoint.x + modeImage.cols/2), (minPoint.y + modeImage.rows/2));
 
-	//circle(findImage, resultPoint, 5, Scalar(theRNG().uniform(0, 255), theRNG().uniform(0, 255), theRNG().uniform(0, 255)), 3, 8);
-
 	return resultPoint;
 	//return minPoint;
 }
@@ -505,8 +552,6 @@ vector <Vec2f> BubbleSort(vector<Vec2f> lines, int type) {
 vector <Vec2f> MergeLines(vector<Vec2f> lines_in, int threshold_r, float threshold_theta, int bubble) {
 	//--------------------bubble select
 	vector<Vec2f> lines = BubbleSort(lines_in, bubble);
-	//if(bubble == 1)
-		//PrintLines(lines, 555);
 	//------------------re group the lines
 	vector<Vec2f> lines_new;
 	int part_num = 1;
@@ -569,4 +614,78 @@ void PrintLines(vector<Vec2f> lines, int num) {
 		printf("line%d:%f,%f\n", i, lines[i][0], lines[i][1]);
 	}
 	printf("\n");
+}
+
+Mat SeperateRGB(Mat srcImage, int num, int low, int high) {
+
+	Mat dstImage;
+	dstImage.create(srcImage.rows, srcImage.cols, srcImage.type());
+
+	for (int i = 0; i < srcImage.rows; i++) {
+		for (int j = 0; j < srcImage.cols; j++) {
+			int sB = srcImage.at<Vec3b>(i, j)[0];
+			int sG = srcImage.at<Vec3b>(i, j)[1];
+			int sR = srcImage.at<Vec3b>(i, j)[2];
+			if (sR >= low && sR <= high && sG >= low && sG <= high && sB >= low && sB <= high
+				/*&& (abs(sR - sG) <= 5 && abs(sG - sB) <= 5)*/) {
+				dstImage.at<Vec3b>(i, j)[0] = 255;
+				dstImage.at<Vec3b>(i, j)[1] = 255;
+				dstImage.at<Vec3b>(i, j)[2] = 255;
+			}
+			else {
+				dstImage.at<Vec3b>(i, j)[0] = 0;
+				dstImage.at<Vec3b>(i, j)[1] = 0;
+				dstImage.at<Vec3b>(i, j)[2] = 0;
+			}
+		}
+	}
+	return dstImage;
+}
+
+vector<Vec2f> VarianceSelectOfLines(vector<Vec2f> lines, float threshold0, float threshold1) {
+	if (lines.size() > 3) {
+		int total0 = 0;
+		int total1 = 0;
+		for (int i = 0; i < lines.size(); i++) {
+			total0 = total0 + lines[i][0];
+			total1 = total1 + lines[i][1];
+		}
+
+		int average0 = total0 / lines.size();
+		int average1 = total1 / lines.size();
+		int variance0 = 0;
+		int variance1 = 0;
+		int max0 = -1;
+		int max1 = -1;
+		int maxnum0 = 0;
+		int maxnum1 = 0;
+ 		for (int i = 0; i < lines.size(); i++) {
+			int square0 = (lines[i][0] - average0) * (lines[i][0] - average0);
+			int square1 = (lines[i][1] - average1) * (lines[i][1] - average1);
+			if (square0 > maxnum0) {
+				maxnum0 = square0;
+				max0 = i;
+			}
+			if (square1 > maxnum1) {
+				maxnum1 = square1;
+				max1 = i;
+			}
+			variance0 = variance0 + square0;
+			variance1 = variance1 + square1;
+		}
+
+		int flag = 0;
+		if (variance0 > threshold0) {
+			lines.erase(lines.begin() + max0);
+			flag = 1;
+		}
+		if (variance1 > threshold1) {
+			lines.erase(lines.begin() + max1);
+			flag = 1;
+		}
+		if (flag == 1) {
+			lines = VarianceSelectOfLines(lines, threshold0, threshold1);
+		}
+	}
+	return lines;
 }
