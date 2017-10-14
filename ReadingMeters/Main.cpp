@@ -8,7 +8,7 @@
 #include <Windows.h>
 #include <math.h>
 
-#define IMAGE_NUM 4
+#define IMAGE_NUM 5
 #define WINDOW_CHANGABLESIZE 0
 #define CANNY_THRESHOLD_1 45
 #define CANNY_THRESHOLD_2 90
@@ -45,6 +45,7 @@ vector <Vec2f> BubbleSort(vector<Vec2f> lines, int type);
 void PrintLines(vector<Vec2f> lines, int num);
 Mat SeperateRGB(Mat srcImage, int num, int low, int high);
 vector<Vec2f> VarianceSelectOfLines(vector<Vec2f> lines, float threshold0, float threshold1);
+Mat SamplingMat(int targetrows, int targetcols, Mat inputImage, int num);
 
 int main() {
 	printf("\n\n\n##########     ReadingMeters v0.0.5     ##########\n");
@@ -76,25 +77,8 @@ int main() {
 		Mat srcImage = imread(name, 1);
 		Mat dstImage;
 		dstImage.create(srcImage.rows, srcImage.cols, srcImage.type());
-
 		
-		Mat dstImage1 = dstImage(Range(0, dstImage.rows / 2), Range(0, dstImage.cols));
-		Mat dstImage2 = dstImage(Range(dstImage.rows / 2 + 1, dstImage.rows), Range(0, dstImage.cols));
-		Mat srcImage1 = srcImage(Range(0, srcImage.rows / 2), Range(0, srcImage.cols));
-		Mat srcImage2 = srcImage(Range(srcImage.rows / 2 + 1, srcImage.rows), Range(0, srcImage.cols));
-
-		dstImage1 = SeperateRGB(srcImage1, i, 85, 180);
-		dstImage2 = SeperateRGB(srcImage2, i, 105, 180);
-
-		dstImage = mergeRows(dstImage1, dstImage2);
-
-		Mat element = getStructuringElement(MORPH_ELLIPSE, Size(5, 5));
-		dilate(dstImage, dstImage, element);
-
-		imwrite(dst7, dstImage);
-		
-
-		//^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+		//----------------------transformProcess begin here!
 		dstImage = transformProcess(srcImage, dstImage, i);
 
 		imwrite(dst, dstImage);
@@ -212,12 +196,14 @@ Mat transformProcess(Mat srcImage, Mat dstImage, int num) {
 	char dstEdge[] = "result\\0_edge.jpg";
 	char dstHough[] = "result\\0_hough1.jpg";
 	char dstRec[] = "result\\0_rec.jpg";
+	char dstSamp[] = "result\\0_samp.jpg";
 	dst[7] = 49 + num;
 	dstFind[7] = 49 + num;
 	dstMerge[7] = 49 + num;
 	dstEdge[7] = 49 + num;
 	dstHough[7] = 49 + num;
 	dstRec[7] = 49 + num;
+	dstSamp[7] = 49 + num;
 
 	Mat greyImage;
 	//-------------------Greyed
@@ -229,6 +215,8 @@ Mat transformProcess(Mat srcImage, Mat dstImage, int num) {
 	equalizeHist(greyImage, dstImage);
 	//-------------------Median Filter
 	medianBlur(dstImage, dstImage, MEDIAN_BLUR_SIZE);
+	Mat samBiImage;
+	dstImage.copyTo(samBiImage);
 	//-------------------cut into 4pics & binary
 	Mat dstImage1 = dstImage(Range(0, dstImage.rows / 2), Range(0, dstImage.cols / 2));
 	Mat dstImage2 = dstImage(Range(0, dstImage.rows / 2), Range(dstImage.cols / 2 + 1, dstImage.cols));
@@ -244,6 +232,17 @@ Mat transformProcess(Mat srcImage, Mat dstImage, int num) {
 	Mat dstImageRight = mergeRows(dstImage2, dstImage4);
 	dstImage = mergeCols(dstImageLeft, dstImageRight);
 	imwrite(dstMerge, dstImage);
+	//--------------------sampling
+	Mat samBiImage1 = samBiImage(Range(0, samBiImage.rows/2), Range(0, samBiImage.cols));
+	Mat samBiImage2 = samBiImage(Range(samBiImage.rows/2 + 1, samBiImage.rows), Range(0, samBiImage.cols));
+
+	threshold(samBiImage1, samBiImage1, GREY_WHITE*0.1, GREY_WHITE, THRESH_BINARY);
+	threshold(samBiImage2, samBiImage2, GREY_WHITE*0.2, GREY_WHITE, THRESH_BINARY);
+
+	samBiImage = mergeRows(samBiImage1, samBiImage2);
+
+	Mat sampleImage = SamplingMat(300, 300, samBiImage, num);
+	imwrite(dstSamp, sampleImage);
 	//--------------------Edge Detection
 	Canny(dstImage, dstImage, CANNY_THRESHOLD_1, CANNY_THRESHOLD_2);
 	imwrite(dstEdge, dstImage);
@@ -305,29 +304,6 @@ Mat transformProcess(Mat srcImage, Mat dstImage, int num) {
 	line(srcImage, b, c, Scalar(0, 0, 255), 5); 
 	line(srcImage, c, d, Scalar(0, 0, 255), 5);
 	line(srcImage, d, a, Scalar(0, 0, 255), 5);
-
-	float k1, t1, k2, t2;
-	int x1, y1;
-	k1 = (a.y - c.y) / (a.x - c.x);
-	t1 = c.y - k1*c.x;
-	k2 = (b.y - d.y) / (b.x - d.x);
-	t2 = d.y - k2*d.x;
-	x1 = (int)((t2 - t1) / (k1 - k2));
-	y1 = (int)(k1*x1 + t1);
-
-	Point findMiddle = Point(x1, y1);
-
-	circle(srcImage, findMiddle, 10, Scalar(255,255,255), 4);
-	circle(srcImage, dialLoc, 10, Scalar(255, 255, 255), 4);
-
-	printf("<%d.jpg> midlle point\n model: (%d,%d); find: (%d,%d).\n", num, dialLoc.x, dialLoc.y, findMiddle.x, findMiddle.y);
-
-	//so a comparation is needed here!
-	int len_square = (d.x-c.x)*(d.x-c.x) + (d.y-c.y)*(d.y*c.y);
-	int distance_square = (findMiddle.x - dialLoc.x)*(findMiddle.x - dialLoc.x) 
-		+ (findMiddle.y - dialLoc.y)*(findMiddle.y - dialLoc.y);
-	if (distance_square > (len_square/16))
-		printf("<error>: center not matching.");
 
 	imwrite(dstRec, srcImage);
 
@@ -616,6 +592,7 @@ void PrintLines(vector<Vec2f> lines, int num) {
 	printf("\n");
 }
 
+
 Mat SeperateRGB(Mat srcImage, int num, int low, int high) {
 
 	Mat dstImage;
@@ -626,8 +603,7 @@ Mat SeperateRGB(Mat srcImage, int num, int low, int high) {
 			int sB = srcImage.at<Vec3b>(i, j)[0];
 			int sG = srcImage.at<Vec3b>(i, j)[1];
 			int sR = srcImage.at<Vec3b>(i, j)[2];
-			if (sR >= low && sR <= high && sG >= low && sG <= high && sB >= low && sB <= high
-				/*&& (abs(sR - sG) <= 5 && abs(sG - sB) <= 5)*/) {
+			if (sR >= low && sR <= high && sG >= low && sG <= high && sB >= low && sB <= high) {
 				dstImage.at<Vec3b>(i, j)[0] = 255;
 				dstImage.at<Vec3b>(i, j)[1] = 255;
 				dstImage.at<Vec3b>(i, j)[2] = 255;
@@ -688,4 +664,41 @@ vector<Vec2f> VarianceSelectOfLines(vector<Vec2f> lines, float threshold0, float
 		}
 	}
 	return lines;
+}
+
+Mat SamplingMat (int rows, int cols, Mat srcImage, int num) {
+	Mat dstImage;
+	dstImage.create(rows, cols, srcImage.type());
+
+	int a = srcImage.rows / rows;
+	int b = srcImage.cols / cols;
+	int x_array[400];
+	int y_array[400];
+
+	for (int i = 0; i < 400; i++) {
+		x_array[i] = 0;
+		y_array[i] = 0;
+	}
+
+	for (int x = 0, i = a / 2; i < srcImage.rows && x < rows; i += a, x++) {
+		for (int y = 0, j = b / 2; j < srcImage.cols && y < cols; j += b, y++) {
+			dstImage.at<uchar>(x, y) = srcImage.at<uchar>(i, j);
+			x_array[y] = x_array[y] + 255 - srcImage.at<uchar>(i, j);
+			y_array[x] = y_array[x] + 255 - srcImage.at<uchar>(i, j);
+		}
+	}
+
+	printf("x轴：");
+
+	for (int i = 0; i < 400; i++) {
+		printf("%d\n", x_array[i]);
+	}
+
+	printf("y轴：");
+
+	for (int i = 0; i < 400; i++) {
+		printf("%d\n", y_array[i]);
+	}
+
+	return dstImage;
 }
