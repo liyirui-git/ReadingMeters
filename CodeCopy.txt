@@ -152,22 +152,42 @@ vector<vector<float>> getEdgelines(vector<vector<float>> edgelines, vector<Vec2f
 
 
 
-*************************************    result : 2017/09/24  16:13
-
-##########     ReadingMeters v0.0.4     ##########
-##########  Last updating in 2017/9/24  ##########
+*************************************    result : 2017/10/22  17:41
 
 
 
-1.jpg-result: 0.42 A
+##########     ReadingMeters v0.0.9     ##########
+##########  Last updating in 2017/10/22   ##########
 
 
+
+There is only one meter in 1.jpg.
+letter flag:(225, 191)
+1.jpg-result: -0.00 A
+
+
+There is only one meter in 2.jpg.
+letter flag:(143, 121)
 2.jpg-result: 397.50 V
 
 
+There is only one meter in 3.jpg.
+letter flag:(224, 180)
 3.jpg-result: 0.00 A
 
 
+There is only one meter in 4.jpg.
+letter flag:(125, 121)
 4.jpg-result: 395.00 V
+
+
+There are 2 meters in 5.jpg.
+letter flag:(227, 175)
+5.jpg-result: -0.83 A
+
+
+There is only one meter in 6.jpg.
+letter flag:(225, 307)
+6.jpg-result: 397.92 V
 
 --------END--------

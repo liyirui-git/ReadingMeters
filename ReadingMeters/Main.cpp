@@ -8,7 +8,7 @@
 #include <Windows.h>
 #include <math.h>
 
-#define IMAGE_NUM 5
+#define IMAGE_NUM 6
 #define WINDOW_CHANGABLESIZE 0
 #define CANNY_THRESHOLD_1 45
 #define CANNY_THRESHOLD_2 90
@@ -28,6 +28,7 @@
 #define FRAME_CUT 15
 #define VARIANCE_THRESHOLD0 1000
 #define VARIANCE_THRESHOLD1 10
+#define SEP_LEVEL 20
 
 using namespace cv;
 using namespace std;
@@ -45,11 +46,12 @@ vector <Vec2f> BubbleSort(vector<Vec2f> lines, int type);
 void PrintLines(vector<Vec2f> lines, int num);
 Mat SeperateRGB(Mat srcImage, int num, int low, int high);
 vector<Vec2f> VarianceSelectOfLines(vector<Vec2f> lines, float threshold0, float threshold1);
-Mat SamplingMat(int targetrows, int targetcols, Mat inputImage, int num);
+int * SamplingMat(int targetrows, int targetcols, Mat inputImage, int num);
+Mat transform(Mat dstImage, Mat srcImage, int num);
 
 int main() {
-	printf("\n\n\n##########     ReadingMeters v0.0.5     ##########\n");
-	printf("##########  Last updating in 2017/9/27   ##########\n\n\n");
+	printf("\n\n\n##########     ReadingMeters v0.0.9     ##########\n");
+	printf("##########  Last updating in 2017/10/22   ##########\n\n\n");
 
 	int pic_num = 1;
 
@@ -75,6 +77,14 @@ int main() {
 		dst7[7] = 49 + i;
 
 		Mat srcImage = imread(name, 1);
+
+		// a track here
+		if (i == 5) {
+			Mat srcImage1 = srcImage(Range(0, 0.75 * srcImage.rows), Range(0.75 * srcImage.cols, srcImage.cols));
+			resize(srcImage1, srcImage, Size(round(3072),round(5500)));
+		}
+		
+			
 		Mat dstImage;
 		dstImage.create(srcImage.rows, srcImage.cols, srcImage.type());
 		
@@ -91,7 +101,8 @@ int main() {
 		//printf("letterLoc:(%d,%d)\n\n", letterLoc.x, letterLoc.y);
 
 		int letterFlag;
-		if (letterLoc.x < 230 && letterLoc.x > 220 && letterLoc.y < 195 && letterLoc.y > 175)
+		//printf("letter flag:(%d, %d)\n", letterLoc.x, letterLoc.y);
+		if (letterLoc.x <= 230 && letterLoc.x >= 220 && letterLoc.y <= 195 && letterLoc.y >= 175)
 			letterFlag = 1;
 		else
 			letterFlag = 0;
@@ -189,6 +200,7 @@ Mat mergeCols(Mat A, Mat B) {
 }
 
 Mat transformProcess(Mat srcImage, Mat dstImage, int num) {
+
 	printf("\n");
 	char dst[] = "result\\0_beforecut.jpg";
 	char dstFind[] = "result\\0_dial.jpg";
@@ -196,21 +208,17 @@ Mat transformProcess(Mat srcImage, Mat dstImage, int num) {
 	char dstEdge[] = "result\\0_edge.jpg";
 	char dstHough[] = "result\\0_hough1.jpg";
 	char dstRec[] = "result\\0_rec.jpg";
-	char dstSamp[] = "result\\0_samp.jpg";
+	
 	dst[7] = 49 + num;
 	dstFind[7] = 49 + num;
 	dstMerge[7] = 49 + num;
 	dstEdge[7] = 49 + num;
 	dstHough[7] = 49 + num;
 	dstRec[7] = 49 + num;
-	dstSamp[7] = 49 + num;
 
 	Mat greyImage;
 	//-------------------Greyed
 	cvtColor(srcImage, greyImage, CV_BGR2GRAY);
-	//-------------------Model Match
-	Mat dialImage = imread("model.jpg",1);
-	Point dialLoc = MatchMain(srcImage, dialImage, dstFind);
 	//-------------------Histogram-equalization
 	equalizeHist(greyImage, dstImage);
 	//-------------------Median Filter
@@ -233,102 +241,90 @@ Mat transformProcess(Mat srcImage, Mat dstImage, int num) {
 	dstImage = mergeCols(dstImageLeft, dstImageRight);
 	imwrite(dstMerge, dstImage);
 	//--------------------sampling
-	Mat samBiImage1 = samBiImage(Range(0, samBiImage.rows/2), Range(0, samBiImage.cols));
-	Mat samBiImage2 = samBiImage(Range(samBiImage.rows/2 + 1, samBiImage.rows), Range(0, samBiImage.cols));
+	Mat samBiImage1 = samBiImage(Range(0, samBiImage.rows/8), Range(0, samBiImage.cols));
+	Mat samBiImage2 = samBiImage(Range(samBiImage.rows / 8 + 1, samBiImage.rows / 4), Range(0, samBiImage.cols));
+	Mat samBiImage3 = samBiImage(Range(samBiImage.rows / 4 + 1, samBiImage.rows/2), Range(0, samBiImage.cols));
+	Mat samBiImage4 = samBiImage(Range(samBiImage.rows/2 + 1, samBiImage.rows), Range(0, samBiImage.cols));
 
-	threshold(samBiImage1, samBiImage1, GREY_WHITE*0.1, GREY_WHITE, THRESH_BINARY);
-	threshold(samBiImage2, samBiImage2, GREY_WHITE*0.2, GREY_WHITE, THRESH_BINARY);
+	threshold(samBiImage1, samBiImage1, GREY_WHITE*0.01, GREY_WHITE, THRESH_BINARY);
+	threshold(samBiImage2, samBiImage2, GREY_WHITE*0.08, GREY_WHITE, THRESH_BINARY);
+	threshold(samBiImage3, samBiImage3, GREY_WHITE*0.18, GREY_WHITE, THRESH_BINARY);
+	threshold(samBiImage4, samBiImage4, GREY_WHITE*0.20, GREY_WHITE, THRESH_BINARY);
 
 	samBiImage = mergeRows(samBiImage1, samBiImage2);
+	samBiImage = mergeRows(samBiImage, samBiImage3);
+	samBiImage = mergeRows(samBiImage, samBiImage4);
 
-	Mat sampleImage = SamplingMat(300, 300, samBiImage, num);
-	imwrite(dstSamp, sampleImage);
-	//--------------------Edge Detection
-	Canny(dstImage, dstImage, CANNY_THRESHOLD_1, CANNY_THRESHOLD_2);
-	imwrite(dstEdge, dstImage);
-	//--------------------Hough Transform
-	vector<Vec2f> lines;
-	HoughLines(dstImage, lines, 1, CV_PI / 180, HOUGH_THRESHOL, 0, 0);
+	int * pt = SamplingMat(300, 300, samBiImage, num);
 
-	for (size_t i = 0; i < lines.size(); i++) {
-		DrawLine(lines[i][0], lines[i][1], dstImage, dstHough, Scalar(255, 0, 0));
+	int x_array[400];
+	int y_array[400];
+	int newx[400];
+	int x_level[400];
+
+	for (int i = 0; i < 400; i++) {
+		x_array[i] = *(pt + i);
+		y_array[i] = *(pt + i + 400);
+		newx[i] = 0;
+		x_level[i] = 0;
 	}
-	//----------------get out of lines which cause buy cuting into 4 pics
+	
+	for (int i = 1; i < 400; i++) {
+		if (x_array[i] < 20000)
+			x_array[i] = 0;
+		else
+			x_array[i] = x_array[i] - 20000;
+	}
 
-	for (size_t i = 0; i < lines.size(); i++) {
-		if (((lines[i][0] >= dstImage.rows/2-2 && lines[i][0] <= dstImage.rows/2 + 2) &&
-			lines[i][1] <= (CV_PI / 2 + 0.001) && lines[i][1] >= (CV_PI / 2 - 0.001)) ||
-			((lines[i][0] >= dstImage.cols - 2 || lines[i][0] <= dstImage.cols + 2) &&
-				(lines[i][1] <= (CV_PI + 0.001) && lines[i][1] >= (CV_PI - 0.001))
-				||(lines[i][1] <= 0.001 && lines[i][1] >= -0.001))) {
-			for (size_t j = i; j < lines.size()-1; j++) {
-				lines[j][0] = lines[j + 1][0];
-				lines[j][1] = lines[j + 1][1];
-			}
-			lines.pop_back();
+	for (int i = 0; i < 400; i++) {
+		if (x_array[i] > 0)
+			x_level[i] = 1;
+		else
+			x_level[i] = 0;
+	}
+
+	for (int i = 0; i < 400; i++) {
+		if (x_level[i] == 0)
+			break;
+		else
+			x_level[i] = 0;
+	}
+
+	int x_num = 0;
+	int cut_before = 0;
+	int cut_later = 0;
+	int cut_len = 300;
+	int cut_center = 0;
+	for (int i = 1; i < 400; i++) {
+		if (x_level[i - 1] == 0 && x_level[i] == 1)
+			x_num++;
+		if (x_num % 2 == 0) {
+			cut_before = i;
+		}
+		else if (x_num%2 == 1 && x_num != 1) {
+			cut_later = i;
+			cut_center = (cut_later + cut_before) / 2;
 		}
 	}
 	
-	vector<Vec2f> lines_new = MergeLines(lines, 30, 0.3, 0);
+	if(x_num > 2)
+		printf("There are %d meters in %d.jpg.\n", num/2, num+1);
+	else
+		printf("There is only one meter in %d.jpg.\n", num+1);
 
-	//------------------print lines:
-	//PrintLine();
+	Mat transImage;
 
-	vector<vector<float>> edgelines;
-	edgelines = getEdgelines(edgelines, lines_new, srcImage, false,dst);
-
-	vector<Point2f> corners_new = getFourCorners(edgelines, srcImage);
-
-	Point2f a = corners_new[0];
-	Point2f b = corners_new[1];
-	Point2f c = corners_new[2];
-	Point2f d = corners_new[3];
-
-	//特殊情况特殊处理，只处理了一种情况（就是表盘的上沿实际上没拍到），后面遇到再加
-	if (a.x == 0 && a.y == 0 && b.x == (float)srcImage.cols && b.y == 0) {
-		vector <float> linesinf;
-		linesinf.push_back(0); linesinf.push_back(CV_PI / 2); linesinf.push_back(0.0);
-		edgelines.push_back(linesinf);
-
-		corners_new = getFourCorners(edgelines, srcImage);
-		a = corners_new[0];
-		b = corners_new[1];
-		c = corners_new[2];
-		d = corners_new[3];
+	if (x_num / 2 == 2) {
+		//--------------------------------------------------------------------------------
+		Mat dstImage1 = dstImage(Range(0, dstImage.rows), Range(0, (3*dstImage.cols) / 8));
+		Mat srcImage1 = srcImage(Range(0, srcImage.rows), Range(0, (3*srcImage.cols) / 8));
+		transImage = transform(dstImage1, srcImage1, num);
+		//---------------------------------------------------------------------------------
+		Mat dstImage2;
+		Mat srcImage2 = srcImage(Range(0, srcImage.rows), Range((5 * srcImage.cols) / 8, dstImage.cols));
 	}
-	//################################################# 补充完整剩下的三种情况 ##################################
-
-
-	//打印表盘的四边
-	line(srcImage, a, b, Scalar(0, 0, 255), 5);
-	line(srcImage, b, c, Scalar(0, 0, 255), 5); 
-	line(srcImage, c, d, Scalar(0, 0, 255), 5);
-	line(srcImage, d, a, Scalar(0, 0, 255), 5);
-
-	imwrite(dstRec, srcImage);
-
-	vector<Point2f> corners(4);
-	corners[0] = Point2f(0, 0);
-	corners[1] = Point2f(TRANS_LEN, 0);
-	corners[2] = Point2f(TRANS_LEN, TRANS_LEN);
-	corners[3] = Point2f(0, TRANS_LEN);
-
-	corners_new[0] = (Point2f)a;
-	corners_new[1] = (Point2f)b;
-	corners_new[2] = (Point2f)c;
-	corners_new[3] = (Point2f)d;
-
-	Mat transform = getPerspectiveTransform(corners_new, corners);
-
-	vector<Point2f> points, points_trans;
-	for (int i = 0; i<srcImage.rows; i++) {
-		for (int j = 0; j<srcImage.cols; j++) {
-			points.push_back(Point2f(j, i));
-		}
-	}
-
-	Mat transImage(TRANS_LEN, TRANS_LEN, CV_32FC2);
-	warpPerspective(srcImage, transImage, transform, transImage.size());
+	else
+		transImage = transform(dstImage, srcImage, num);
 
 	return transImage;
 }
@@ -425,7 +421,7 @@ vector<vector<float>> getEdgelines(vector<vector<float>> edgelines, vector<Vec2f
 		//----------find the edge of pointer
 		else {      
 			//get out of lines which in right blow caused by the frame of plate
-			if (rho >= 1680 && rho <= 1710 && theta >= 0.78 && theta <= 0.83)
+			if (rho >= 1680 && rho <= 1710 && theta >= 0.76 && theta <= 0.83)
 			{
 				continue;
 			}
@@ -453,6 +449,13 @@ vector<vector<float>> getEdgelines(vector<vector<float>> edgelines, vector<Vec2f
 			edgelines.push_back(linesinf);
 		}
 	}
+	
+	/*if (pointer) {
+		printf("\nafter right blow lines:\n");
+		for (int i = 0; i < edgelines.size(); i++)
+			printf("(%f, %f)\n", edgelines[i][0], edgelines[i][1]);
+	}*/
+	
 	return edgelines;
 
 }
@@ -666,39 +669,147 @@ vector<Vec2f> VarianceSelectOfLines(vector<Vec2f> lines, float threshold0, float
 	return lines;
 }
 
-Mat SamplingMat (int rows, int cols, Mat srcImage, int num) {
+int* SamplingMat (int rows, int cols, Mat srcImage, int num) {
 	Mat dstImage;
 	dstImage.create(rows, cols, srcImage.type());
 
 	int a = srcImage.rows / rows;
 	int b = srcImage.cols / cols;
-	int x_array[400];
-	int y_array[400];
+	int array1 [800];
+	
+	char dstSamp[] = "result\\0_samp.jpg";
+	dstSamp[7] = 49 + num;
 
-	for (int i = 0; i < 400; i++) {
-		x_array[i] = 0;
-		y_array[i] = 0;
+	imwrite(dstSamp, srcImage);
+
+	for (int i = 0; i < 800; i++) {
+		array1[i] = 0;
 	}
 
 	for (int x = 0, i = a / 2; i < srcImage.rows && x < rows; i += a, x++) {
 		for (int y = 0, j = b / 2; j < srcImage.cols && y < cols; j += b, y++) {
 			dstImage.at<uchar>(x, y) = srcImage.at<uchar>(i, j);
-			x_array[y] = x_array[y] + 255 - srcImage.at<uchar>(i, j);
-			y_array[x] = y_array[x] + 255 - srcImage.at<uchar>(i, j);
+			array1[y] = array1[y] + 255 - srcImage.at<uchar>(i, j);
+			array1[x+400] = array1[x+400] + 255 - srcImage.at<uchar>(i, j);
 		}
 	}
 
-	printf("x轴：");
-
+	/*printf("x轴：");
+	
 	for (int i = 0; i < 400; i++) {
-		printf("%d\n", x_array[i]);
+		printf("%d\n", array1[i]);
 	}
-
+	
 	printf("y轴：");
 
 	for (int i = 0; i < 400; i++) {
-		printf("%d\n", y_array[i]);
+		printf("%d\n", array1[i+400]);
+	}
+	*/
+	return array1;
+}
+
+Mat transform(Mat dstImage, Mat srcImage, int num) {
+	char dst[] = "result\\0_beforecut.jpg";
+	char dstFind[] = "result\\0_dial.jpg";
+	char dstMerge[] = "result\\0_merge.jpg";
+	char dstEdge[] = "result\\0_edge.jpg";
+	char dstHough[] = "result\\0_hough1.jpg";
+	char dstRec[] = "result\\0_rec.jpg";
+
+	dst[7] = 49 + num;
+	dstFind[7] = 49 + num;
+	dstMerge[7] = 49 + num;
+	dstEdge[7] = 49 + num;
+	dstHough[7] = 49 + num;
+	dstRec[7] = 49 + num;
+	//--------------------Edge Detection
+	Canny(dstImage, dstImage, CANNY_THRESHOLD_1, CANNY_THRESHOLD_2);
+	imwrite(dstEdge, dstImage);
+	//--------------------Hough Transform
+	vector<Vec2f> lines;
+	HoughLines(dstImage, lines, 1, CV_PI / 180, HOUGH_THRESHOL, 0, 0);
+
+	for (size_t i = 0; i < lines.size(); i++) {
+		DrawLine(lines[i][0], lines[i][1], dstImage, dstHough, Scalar(255, 0, 0));
 	}
 
-	return dstImage;
+	//----------------get out of lines which cause buy cuting into 4 pics
+
+	for (size_t i = 0; i < lines.size(); i++) {
+		if (((lines[i][0] >= dstImage.rows / 2 - 2 && lines[i][0] <= dstImage.rows / 2 + 2) &&
+			lines[i][1] <= (CV_PI / 2 + 0.001) && lines[i][1] >= (CV_PI / 2 - 0.001)) ||
+			((lines[i][0] >= dstImage.cols / 2 - 2 && lines[i][0] <= dstImage.cols / 2 + 2) &&
+			((lines[i][1] <= (CV_PI + 0.001) && lines[i][1] >= (CV_PI - 0.001))
+				|| (lines[i][1] <= 0.001 && lines[i][1] >= -0.001)))) {
+			for (size_t j = i; j < lines.size() - 1; j++) {
+				lines[j][0] = lines[j + 1][0];
+				lines[j][1] = lines[j + 1][1];
+			}
+			lines.pop_back();
+		}
+	}
+
+	vector<Vec2f> lines_new = MergeLines(lines, 30, 0.3, 0);
+
+	//------------------print lines:
+	//PrintLine();
+
+	vector<vector<float>> edgelines;
+	edgelines = getEdgelines(edgelines, lines_new, srcImage, false, dst);
+
+	vector<Point2f> corners_new = getFourCorners(edgelines, srcImage);
+
+	Point2f a = corners_new[0];
+	Point2f b = corners_new[1];
+	Point2f c = corners_new[2];
+	Point2f d = corners_new[3];
+
+	//特殊情况特殊处理，只处理了一种情况（就是表盘的上沿实际上没拍到），后面遇到再加
+	if (a.x == 0 && a.y == 0 && b.x == (float)srcImage.cols && b.y == 0) {
+		vector <float> linesinf;
+		linesinf.push_back(0); linesinf.push_back(CV_PI / 2); linesinf.push_back(0.0);
+		edgelines.push_back(linesinf);
+
+		corners_new = getFourCorners(edgelines, srcImage);
+		a = corners_new[0];
+		b = corners_new[1];
+		c = corners_new[2];
+		d = corners_new[3];
+	}
+	//################################################# 补充完整剩下的三种情况 ##################################
+
+
+	//打印表盘的四边
+	line(srcImage, a, b, Scalar(0, 0, 255), 5);
+	line(srcImage, b, c, Scalar(0, 0, 255), 5);
+	line(srcImage, c, d, Scalar(0, 0, 255), 5);
+	line(srcImage, d, a, Scalar(0, 0, 255), 5);
+
+	imwrite(dstRec, srcImage);
+
+	vector<Point2f> corners(4);
+	corners[0] = Point2f(0, 0);
+	corners[1] = Point2f(TRANS_LEN, 0);
+	corners[2] = Point2f(TRANS_LEN, TRANS_LEN);
+	corners[3] = Point2f(0, TRANS_LEN);
+
+	corners_new[0] = (Point2f)a;
+	corners_new[1] = (Point2f)b;
+	corners_new[2] = (Point2f)c;
+	corners_new[3] = (Point2f)d;
+
+	Mat transform = getPerspectiveTransform(corners_new, corners);
+
+	vector<Point2f> points, points_trans;
+	for (int i = 0; i<srcImage.rows; i++) {
+		for (int j = 0; j<srcImage.cols; j++) {
+			points.push_back(Point2f(j, i));
+		}
+	}
+
+	Mat transImage(TRANS_LEN, TRANS_LEN, CV_32FC2);
+	warpPerspective(srcImage, transImage, transform, transImage.size());
+
+	return transImage;
 }
