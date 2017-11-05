@@ -8,7 +8,7 @@
 #include <Windows.h>
 #include <math.h>
 
-#define IMAGE_NUM 6
+#define IMAGE_NUM 7
 #define WINDOW_CHANGABLESIZE 0
 #define CANNY_THRESHOLD_1 45
 #define CANNY_THRESHOLD_2 90
@@ -50,8 +50,8 @@ int * SamplingMat(int targetrows, int targetcols, Mat inputImage, int num);
 Mat transform(Mat dstImage, Mat srcImage, int num);
 
 int main() {
-	printf("\n\n\n##########     ReadingMeters v0.0.9     ##########\n");
-	printf("##########  Last updating in 2017/10/22   ##########\n\n\n");
+	printf("\n\n\n##########     ReadingMeters v0.0.10     ##########\n");
+	printf("##########  Last updating in 2017/11/5   ##########\n\n\n");
 
 	int pic_num = 1;
 
@@ -693,19 +693,19 @@ int* SamplingMat (int rows, int cols, Mat srcImage, int num) {
 			array1[x+400] = array1[x+400] + 255 - srcImage.at<uchar>(i, j);
 		}
 	}
+	if (num == 6) {
+		printf("x轴：");
 
-	/*printf("x轴：");
-	
-	for (int i = 0; i < 400; i++) {
-		printf("%d\n", array1[i]);
-	}
-	
-	printf("y轴：");
+		for (int i = 0; i < 400; i++) {
+			printf("%d\n", array1[i]);
+		}
 
-	for (int i = 0; i < 400; i++) {
-		printf("%d\n", array1[i+400]);
+		printf("y轴：");
+
+		for (int i = 0; i < 400; i++) {
+			printf("%d\n", array1[i + 400]);
+		}
 	}
-	*/
 	return array1;
 }
 
