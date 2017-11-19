@@ -8,7 +8,7 @@
 #include <Windows.h>
 #include <math.h>
 
-#define IMAGE_NUM 7
+#define IMAGE_NUM 5
 #define WINDOW_CHANGABLESIZE 0
 #define CANNY_THRESHOLD_1 45
 #define CANNY_THRESHOLD_2 90
@@ -29,6 +29,8 @@
 #define VARIANCE_THRESHOLD0 1000
 #define VARIANCE_THRESHOLD1 10
 #define SEP_LEVEL 20
+#define ZOOM_TIMES 5
+#define CUT_PART 36
 
 using namespace cv;
 using namespace std;
@@ -48,10 +50,11 @@ Mat SeperateRGB(Mat srcImage, int num, int low, int high);
 vector<Vec2f> VarianceSelectOfLines(vector<Vec2f> lines, float threshold0, float threshold1);
 int * SamplingMat(int targetrows, int targetcols, Mat inputImage, int num);
 Mat transform(Mat dstImage, Mat srcImage, int num);
+Mat rotateImage(Mat img, double degree);
 
 int main() {
-	printf("\n\n\n##########     ReadingMeters v0.0.10     ##########\n");
-	printf("##########  Last updating in 2017/11/5   ##########\n\n\n");
+	printf("\n\n\n##########     ReadingMeters v0.0.11     ##########\n");
+	printf("##########  Last updating in 2017/11/19   ##########\n\n\n");
 
 	int pic_num = 1;
 
@@ -208,6 +211,8 @@ Mat transformProcess(Mat srcImage, Mat dstImage, int num) {
 	char dstEdge[] = "result\\0_edge.jpg";
 	char dstHough[] = "result\\0_hough1.jpg";
 	char dstRec[] = "result\\0_rec.jpg";
+	char dstRot[] = "result\\0_rotation.jpg";
+	char dstRot2[] = "result\\0_rotation2.jpg";
 	
 	dst[7] = 49 + num;
 	dstFind[7] = 49 + num;
@@ -215,6 +220,8 @@ Mat transformProcess(Mat srcImage, Mat dstImage, int num) {
 	dstEdge[7] = 49 + num;
 	dstHough[7] = 49 + num;
 	dstRec[7] = 49 + num;
+	dstRot[7] = 49 + num;
+	dstRot2[7] = 49 + num;
 
 	Mat greyImage;
 	//-------------------Greyed
@@ -224,7 +231,9 @@ Mat transformProcess(Mat srcImage, Mat dstImage, int num) {
 	//-------------------Median Filter
 	medianBlur(dstImage, dstImage, MEDIAN_BLUR_SIZE);
 	Mat samBiImage;
+	Mat rotImage;
 	dstImage.copyTo(samBiImage);
+	dstImage.copyTo(rotImage);
 	//-------------------cut into 4pics & binary
 	Mat dstImage1 = dstImage(Range(0, dstImage.rows / 2), Range(0, dstImage.cols / 2));
 	Mat dstImage2 = dstImage(Range(0, dstImage.rows / 2), Range(dstImage.cols / 2 + 1, dstImage.cols));
@@ -240,7 +249,169 @@ Mat transformProcess(Mat srcImage, Mat dstImage, int num) {
 	Mat dstImageRight = mergeRows(dstImage2, dstImage4);
 	dstImage = mergeCols(dstImageLeft, dstImageRight);
 	imwrite(dstMerge, dstImage);
+
+	//-------------------rotation
+	resize(rotImage, rotImage, Size(rotImage.cols/ZOOM_TIMES, rotImage.rows/ZOOM_TIMES));
+	rotImage = rotateImage(rotImage, 230);
+	
+	imwrite(dstRot, rotImage);
+	
+	threshold(rotImage,rotImage, GREY_WHITE*0.18, GREY_WHITE, THRESH_BINARY);
+
+	Mat rotImageOut;
+	rotImage.copyTo(rotImageOut);
+	//imwrite(dstRot, rotImageOut);
+
+	//轮廓检测
+	/*
+	vector<vector<Point>> contours;
+	vector<Vec4i> hierarchy;
+	findContours(rotImage, contours, hierarchy, RETR_EXTERNAL, CHAIN_APPROX_NONE);
+	
+	int index = 0;
+	for (; index >= 0; index = hierarchy[index][0]) {
+		Scalar color(255, 255, 255);
+		drawContours(rotImage, contours, index, color, FILLED, 8, hierarchy);
+	}
+	*/
+	
+
+	Canny(rotImage, rotImage, CANNY_THRESHOLD_3, CANNY_THRESHOLD_4);
+
+	//imwrite(dstRot, rotImage);
+
+	vector<Vec2f> hLines;
+
+	HoughLines(rotImage, hLines, 1, CV_PI / 180, (HOUGH_THRESHOL+40)/ZOOM_TIMES, 0, 0);
+
+	//统计直线最多的范围
+	size_t lineStatistics[CUT_PART+1];
+
+	for (int i = 0; i < CUT_PART + 1; i++) {
+		lineStatistics[i] = 0;
+	}
+	
+	for (size_t i = 0; i < hLines.size(); i++) {
+		//DrawLine(hLines[i][0], hLines[i][1], rotImage, dstRot, Scalar(255,0,0));
+		lineStatistics[(int)(hLines[i][1] / CV_PI * CUT_PART)]++;
+	}
+	//imwrite(dstRot, rotImage);
+	int statisticMax = lineStatistics[0];
+	int iMax = 0;
+	for (int i = 0; i < CUT_PART + 1; i++) {
+		if (lineStatistics[i] > statisticMax) {
+			statisticMax = lineStatistics[i];
+			iMax = i;
+		}
+		//printf("[%d]:%d\n", i, lineStatistics[i]);
+	}
+	
+	//printf("The most line theta: %d - %d\n", 180 + 180*iMax/CUT_PART, 180+180*(iMax + 1)/CUT_PART);
+
+	rotImageOut = rotateImage(rotImageOut, 180 + 180 * (iMax + 1/2) / CUT_PART);
+
+	int du = 180 + 180 * (iMax + 1 / 2) / CUT_PART;
+
+	//printf("theta:%d\n", du);
+
+	imwrite(dstRot2, rotImageOut);
+
+	//向x轴y轴投影
+	int *ptOut = SamplingMat(400, 400, rotImageOut, num);
+	int arrayOut[800];
+	for (int i = 0; i < 800; i++) {
+		arrayOut[i] = *(ptOut + i);
+	}
+	int *ptRot = arrayOut;
+	int x_begin = -1, x_end = -1, y_begin = -1, y_end = -1;
+
+	for (int i = 0; i < 400; i++) {
+		if (*(ptRot + i) != 0 && x_begin < 0)
+			x_begin = i;
+		if (*(ptRot + 399 - i) != 0 && x_end < 0)
+			x_end = 399 - i;
+		if (*(ptRot + 400 + i) != 0 && y_begin < 0)
+			y_begin = 400 + i;
+		if (*(ptRot + 799 - i) != 0 && y_end < 0)
+			y_end = 799 - i;
+		if (x_begin > 0 && x_end > 0 && y_begin > 0 && y_end > 0)
+			break;
+	}
+
+	//printf("x:(%d-%d);y:(%d-%d)\n", x_begin, x_end, y_begin, y_end);
+
+	int x_half1 = 0, x_half2 = 0, y_half1 = 0, y_half2 = 0;
+
+	int num_before = -1;
+	//printf("x:\n");
+	for (int i = x_begin; i < (x_begin + x_end) / 2; i++) {
+		if (num_before == -1)
+			num_before = *(ptRot + i);
+		else {
+			//printf("%d\n", num_before - *(ptRot + i));
+			if (num_before > *(ptRot + i))
+				if (fabs(num_before - *(ptRot + i)) <= 1000 && fabs(num_before - *(ptRot + i)) >= 200)
+					x_half1++;
+			num_before = *(ptRot + i);
+		}
+	}
+	num_before = -1;
+	for (int i = (x_begin + x_end) / 2 + 1; i < x_end; i++) {
+		if (num_before == -1)
+			num_before = *(ptRot + i);
+		else {
+			//printf("%d\n", num_before - *(ptRot + i));
+			if (num_before < *(ptRot + i))
+				if (fabs(num_before - *(ptRot + i)) <= 1000 && fabs(num_before - *(ptRot + i)) >= 200)
+					x_half2++;
+			num_before = *(ptRot + i);
+		}
+	}
+	num_before = -1;
+	//printf("y:\n");
+	for (int i = y_begin; i < (y_begin + y_end) / 2; i++) {
+		//printf("%d:%d\n", i, *(ptRot + i));
+		if (num_before == -1)
+			num_before = *(ptRot + i);
+		else {
+			//printf("%d\n", num_before - *(ptRot + i));
+			if (num_before > *(ptRot + i))
+				if (fabs(num_before - *(ptRot + i)) <= 1000 && fabs(num_before - *(ptRot + i)) >= 150)
+					y_half1++;
+			num_before = *(ptRot + i);
+		}
+	}
+	num_before = -1;
+	for (int i = (y_begin + y_end) / 2 + 1; i < y_end; i++) {
+		if (num_before == -1)
+			num_before = *(ptRot + i);
+		else {
+			//printf("%d\n", num_before - *(ptRot + i));
+			if (num_before < *(ptRot + i))
+				if (fabs(num_before - *(ptRot + i)) <= 1000 && fabs(num_before - *(ptRot + i)) >= 150)
+					y_half2++;
+			num_before = *(ptRot + i);
+		}
+	}
+	
+	//printf("(x_1,x_2;y_1,y_2):(%d,%d,%d,%d)\n",x_half1,x_half2,y_half1,y_half2);
+
+	if (x_half1 > x_half2 && y_half1 > y_half2) {
+		printf("Need rotate: %d\n", (du + 180) % 360);
+	}
+	else if (x_half1 > x_half2 && y_half1 < y_half2) {
+		printf("Need rotate: %d\n", (du + 90) % 360);
+	}
+	else if (x_half1 < x_half2 && y_half1 > y_half2) {
+		printf("Need rotate: %d\n", (du + 270) % 360);
+	}
+	else if (x_half1 < x_half2 && y_half1 < y_half2) {
+		printf("Need rotate: %d\n", du % 360);
+	}
 	//--------------------sampling
+
+	/*use before to cut multi-meter picture
+
 	Mat samBiImage1 = samBiImage(Range(0, samBiImage.rows/8), Range(0, samBiImage.cols));
 	Mat samBiImage2 = samBiImage(Range(samBiImage.rows / 8 + 1, samBiImage.rows / 4), Range(0, samBiImage.cols));
 	Mat samBiImage3 = samBiImage(Range(samBiImage.rows / 4 + 1, samBiImage.rows/2), Range(0, samBiImage.cols));
@@ -254,6 +425,9 @@ Mat transformProcess(Mat srcImage, Mat dstImage, int num) {
 	samBiImage = mergeRows(samBiImage1, samBiImage2);
 	samBiImage = mergeRows(samBiImage, samBiImage3);
 	samBiImage = mergeRows(samBiImage, samBiImage4);
+	*/
+
+	threshold(samBiImage, samBiImage, GREY_WHITE*0.18, GREY_WHITE, THRESH_BINARY);
 
 	int * pt = SamplingMat(300, 300, samBiImage, num);
 
@@ -673,8 +847,8 @@ int* SamplingMat (int rows, int cols, Mat srcImage, int num) {
 	Mat dstImage;
 	dstImage.create(rows, cols, srcImage.type());
 
-	int a = srcImage.rows / rows;
-	int b = srcImage.cols / cols;
+	float a = (float)srcImage.rows / rows;
+	float b = (float)srcImage.cols / cols;
 	int array1 [800];
 	
 	char dstSamp[] = "result\\0_samp.jpg";
@@ -685,25 +859,30 @@ int* SamplingMat (int rows, int cols, Mat srcImage, int num) {
 	for (int i = 0; i < 800; i++) {
 		array1[i] = 0;
 	}
+	float i = a / 2;
 
-	for (int x = 0, i = a / 2; i < srcImage.rows && x < rows; i += a, x++) {
-		for (int y = 0, j = b / 2; j < srcImage.cols && y < cols; j += b, y++) {
-			dstImage.at<uchar>(x, y) = srcImage.at<uchar>(i, j);
-			array1[y] = array1[y] + 255 - srcImage.at<uchar>(i, j);
-			array1[x+400] = array1[x+400] + 255 - srcImage.at<uchar>(i, j);
+	//printf("a:%f,i:%f\n", a, i);
+	for (int x = 0; (int)(i+1) < srcImage.rows && x < rows; i += a, x++) {
+		//printf("i:%d\n", (int)(i+1));
+		float j = b / 2;
+		for (int y = 0; (int)(j+1) < srcImage.cols && y < cols; j += b, y++) {
+			//printf("j:%d\n", (int)(j + 1));
+			//printf("asdas:%d\n", srcImage.at<uchar>((int)i, (int)j));
+			array1[y] = array1[y] + 255 - srcImage.at<uchar>((int)i, (int)j);
+			array1[x+400] = array1[x+400] + 255 - srcImage.at<uchar>((int)i, (int)j);
 		}
 	}
-	if (num == 6) {
-		printf("x轴：");
+	if (num == -1) {
+		printf("x轴：\n");
 
-		for (int i = 0; i < 400; i++) {
-			printf("%d\n", array1[i]);
+		for (int k = 0; k < 400; k++) {
+			printf("%d\n", array1[k]);
 		}
 
-		printf("y轴：");
+		printf("y轴：\n");
 
-		for (int i = 0; i < 400; i++) {
-			printf("%d\n", array1[i + 400]);
+		for (int k = 0; k < 400; k++) {
+			printf("%d\n", array1[k + 400]);
 		}
 	}
 	return array1;
@@ -813,3 +992,30 @@ Mat transform(Mat dstImage, Mat srcImage, int num) {
 
 	return transImage;
 }
+
+
+Mat rotateImage(Mat img, double degree) {
+	double angle = degree  * CV_PI / 180.0; // 弧度    
+	double a = sin(angle), b = cos(angle);
+	int width = img.rows;
+	int height = img.cols;
+	int width_rotate = int(height * fabs(a) + width * fabs(b));
+	int height_rotate = int(width * fabs(a) + height * fabs(b));
+	//旋转数组map  
+	// [ m0  m1  m2 ] ===>  [ A11  A12   b1 ]  
+	// [ m3  m4  m5 ] ===>  [ A21  A22   b2 ]  
+	Mat map_matrix = Mat(2, 3, CV_32F);
+	// 旋转中心  
+	Point2f center = Point2f(height/2, width / 2);
+	map_matrix = getRotationMatrix2D(center, degree, 1);
+	map_matrix.at<double>(0, 2) += (double)(height_rotate - height) / 2.0; 
+	map_matrix.at<double>(1, 2) += (double)(width_rotate - width) / 2.0;
+	//height_rotate have some problem
+
+	Mat img_rotate;
+	//img_rotate.create(width_rotate, height_rotate, img.type());
+	//对图像做仿射变换   
+	warpAffine(img, img_rotate, map_matrix, Size(height_rotate, width_rotate), 1, 0, Scalar(255, 255, 255));
+	return img_rotate;
+}
+
